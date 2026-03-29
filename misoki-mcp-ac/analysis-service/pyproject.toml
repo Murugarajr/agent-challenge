@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "misoki-analysis-service"
+version = "0.1.0"
+description = "FastAPI analysis service for Misoki using ohm-mcp analyzers"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+  "fastapi>=0.115.0",
+  "pydantic>=2.7.0",
+  "uvicorn[standard]>=0.30.0",
+]
+
+[tool.setuptools]
+package-dir = {"" = "."}
+packages = [
+  "app",
+  "app.api",
+  "app.core",
+  "app.schemas",
+  "app.services",
+]
