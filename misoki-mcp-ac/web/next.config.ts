@@ -10,6 +10,10 @@ const nextConfig: NextConfig = {
         source: "/api/analysis/:path*",
         destination: `${process.env.NEXT_PUBLIC_ANALYSIS_SERVICE_URL ?? "http://localhost:8000"}/:path*`,
       },
+      {
+        source: "/api/agent/:path*",
+        destination: `${process.env.NEXT_PUBLIC_AGENT_URL ?? "http://localhost:3000"}/:path*`,
+      },
     ];
   },
 };
