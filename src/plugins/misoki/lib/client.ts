@@ -41,6 +41,44 @@ export type PreviewFixResponse = {
   diff: string;
 };
 
+export type AppliedFixResult = {
+  fix_id: string;
+  file: string;
+  line: number;
+  source_type: string;
+  applied: boolean;
+  risk: string;
+  message: string;
+};
+
+export type SkippedFixResult = {
+  fix_id: string;
+  file?: string | null;
+  line?: number | null;
+  source_type?: string | null;
+  reason: string;
+};
+
+export type AppliedFilePatch = {
+  file: string;
+  applied_fix_ids: string[];
+  original: string;
+  modified: string;
+  diff: string;
+};
+
+export type ApplyFixResponse = {
+  repo: string;
+  branch: string;
+  applied_count: number;
+  skipped_count: number;
+  applied_fix_ids: string[];
+  applied: AppliedFixResult[];
+  skipped: SkippedFixResult[];
+  files: AppliedFilePatch[];
+  combined_diff: string;
+};
+
 function getSetting(runtime: IAgentRuntime, key: string): string | undefined {
   const value = runtime.getSetting(key);
   if (value !== undefined && value !== null) {
@@ -205,4 +243,39 @@ export async function previewFix(
   }
 
   return parsed as PreviewFixResponse;
+}
+
+export async function applySafeFixes(
+  runtime: IAgentRuntime,
+  payload: { githubUrl: string; fixIds: string[] }
+): Promise<ApplyFixResponse> {
+  const baseUrl = getAnalysisServiceBaseUrl(runtime);
+  const timeoutMs = getAnalysisTimeoutMs(runtime);
+  const url = `${baseUrl}/apply/fixes`;
+  const response = await fetchWithTimeout(
+    runtime,
+    url,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        github_url: payload.githubUrl,
+        fix_ids: payload.fixIds,
+      }),
+    },
+    timeoutMs,
+    {
+      githubUrl: payload.githubUrl,
+      fixCount: payload.fixIds.length,
+    }
+  );
+
+  const parsed = await parseJsonResponse<ApplyFixResponse | { detail?: string }>(response);
+  if (!response.ok) {
+    const detail =
+      "detail" in parsed && typeof parsed.detail === "string" ? parsed.detail : "Unknown error";
+    throw new Error(`Apply service error ${response.status}: ${detail}`);
+  }
+
+  return parsed as ApplyFixResponse;
 }

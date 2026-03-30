@@ -10,25 +10,38 @@ import type {
 import { logger } from "@elizaos/core";
 import { randomUUID } from "node:crypto";
 
-import { analyzeRepo, previewFix, type AnalysisIssue, type AnalyzeRepoResponse } from "./lib/client";
+import {
+  analyzeRepo,
+  applySafeFixes,
+  previewFix,
+  type AnalysisIssue,
+  type AnalyzeRepoResponse,
+  type ApplyFixResponse,
+} from "./lib/client";
 import {
   formatAnalysisSummary,
+  formatApplySummary,
   formatFileDetailsSummary,
   formatFindingExplanation,
+  formatPrDraftSummary,
   formatPreviewSummary,
   formatRefactorPlan,
   formatTopIssuesSummary,
 } from "./lib/formatters";
+import { createGitHubPrFromPatches } from "./lib/github";
 
 const GITHUB_URL_RE = /https?:\/\/github\.com\/[\w.-]+\/[\w.-]+(?:\.git)?\/?/i;
 const FIX_ID_RE = /\b[a-z_]+:[^:\s]+(?:\/[^:\s]+)*:\d+:[a-z_]+\b/i;
 const inFlightRepoAnalyses = new Map<string, { actionId: string; startedAt: number }>();
 const latestAnalysisByRoom = new Map<string, CachedAnalysis>();
+const latestApplyByRoom = new Map<string, CachedApplyResult>();
 const CHAT_ANALYSIS_CATEGORIES = ["architecture", "dead_code", "performance"];
 const TOP_ISSUES_RE = /\b(top|biggest|worst|findings|issues|critical|warning|performance|architecture|dead\s*code)\b/i;
 const FILE_DETAILS_RE = /\b(file|module|details|worst file|top file|most issues|focus on)\b/i;
 const EXPLAIN_FINDING_RE = /\b(explain|what does|what is|why is|why does|tell me more|mean)\b/i;
 const REFACTOR_PLAN_RE = /\b(refactor plan|roadmap|prioriti[sz]e|fix first|first step|next step|what should i fix first)\b/i;
+const APPLY_SAFE_FIXES_RE = /\b(apply safe fixes|apply fixes|safe fixes|quick wins|apply cleanup)\b/i;
+const CREATE_PR_RE = /\b(create pr|pull request|draft pr|prepare pr)\b/i;
 const QUERY_STOPWORDS = new Set([
   "about",
   "after",
@@ -72,6 +85,11 @@ const QUERY_STOPWORDS = new Set([
 
 type CachedAnalysis = AnalyzeRepoResponse & {
   cachedAt: number;
+};
+
+type CachedApplyResult = {
+  response: ApplyFixResponse;
+  createdAt: number;
 };
 
 function getMessageText(message: Memory): string {
@@ -136,10 +154,27 @@ function cacheAnalysis(roomId: string, result: AnalyzeRepoResponse): void {
     ...result,
     cachedAt: Date.now(),
   });
+  latestApplyByRoom.delete(roomId);
 }
 
 function getCachedAnalysis(roomId: string): CachedAnalysis | null {
   return latestAnalysisByRoom.get(roomId) ?? null;
+}
+
+function cacheApplyResult(roomId: string, response: ApplyFixResponse): void {
+  latestApplyByRoom.set(roomId, {
+    response,
+    createdAt: Date.now(),
+  });
+}
+
+function getCachedApplyResult(roomId: string): CachedApplyResult | null {
+  return latestApplyByRoom.get(roomId) ?? null;
+}
+
+function getRepoName(githubUrl: string): string {
+  const parts = githubUrl.replace(/\/$/, "").split("/");
+  return parts[parts.length - 1] || "repo";
 }
 
 function severityRank(severity: string): number {
@@ -316,6 +351,56 @@ function findMatchingIssue(text: string, analysis: AnalyzeRepoResponse): Analysi
   }
 
   return bestScore > 0 ? bestIssue : null;
+}
+
+function buildPrDraft(
+  analysis: AnalyzeRepoResponse,
+  applyResult: ApplyFixResponse | null
+): {
+  branchName: string;
+  title: string;
+  body: string;
+  changedFiles: string[];
+  appliedCount: number;
+} {
+  const repoName = getRepoName(analysis.repo);
+  const timestamp = new Date().toISOString().slice(0, 10);
+  const changedFiles = applyResult?.files.map((file) => file.file) ?? [];
+  const appliedCount = applyResult?.applied_count ?? 0;
+  const title =
+    appliedCount > 0
+      ? `chore(${repoName}): apply Misoki safe fixes`
+      : `chore(${repoName}): draft Misoki refactor follow-up`;
+  const branchName = `misoki/${repoName}-safe-fixes-${timestamp}`;
+  const bodyLines = [
+    "## Summary",
+    "",
+    `- Repo analyzed: ${analysis.repo}`,
+    `- Commit analyzed: ${analysis.commit}`,
+    `- Findings summary: critical=${analysis.summary.critical}, warning=${analysis.summary.warning}, info=${analysis.summary.info}`,
+    appliedCount > 0 ? `- Safe fixes applied: ${appliedCount}` : "- Safe fixes applied: 0",
+    changedFiles.length > 0 ? `- Changed files: ${changedFiles.join(", ")}` : "- Changed files: none",
+    "",
+    "## Included changes",
+    "",
+    ...(appliedCount > 0
+      ? applyResult!.applied_fix_ids.map((fixId) => `- ${fixId}`)
+      : ["- No automated patches are attached in this draft."]),
+    "",
+    "## Follow-up",
+    "",
+    "- Review the generated patch carefully before opening a real PR.",
+    "- Re-run repository analysis after applying safe fixes.",
+    "- Tackle the highest-severity architectural findings next.",
+  ];
+
+  return {
+    branchName,
+    title,
+    body: bodyLines.join("\n"),
+    changedFiles,
+    appliedCount,
+  };
 }
 
 type MessageBusServiceLike = {
@@ -842,6 +927,181 @@ const createRefactorPlanAction: Action = {
   },
 };
 
+const applySafeFixesAction: Action = {
+  name: "APPLY_SAFE_FIXES",
+  similes: ["APPLY_FIXES", "APPLY_QUICK_WINS", "APPLY_CLEANUP"],
+  description:
+    "Apply currently supported low-risk fixes from the most recent Misoki analysis in this chat.",
+  validate: async (_runtime: IAgentRuntime, message: Memory, _state?: State) => {
+    const text = getMessageText(message);
+    return getCachedAnalysis(message.roomId) !== null && extractGithubUrl(text) === null && APPLY_SAFE_FIXES_RE.test(text);
+  },
+  handler: async (
+    runtime: IAgentRuntime,
+    message: Memory,
+    _state?: State,
+    _options?: Record<string, unknown>,
+    callback?: HandlerCallback
+  ): Promise<ActionResult> => {
+    try {
+      const analysis = getCachedAnalysis(message.roomId);
+      if (!analysis) {
+        throw new Error("No repository analysis is cached for this chat yet.");
+      }
+
+      const requestedCount = extractRequestedIssueCount(getMessageText(message), 5);
+      const fixIds = sortIssues(analysis.issues)
+        .filter((issue) => issue.fixable)
+        .slice(0, requestedCount)
+        .map((issue) => issue.fix_id);
+
+      if (fixIds.length === 0) {
+        const noFixesText =
+          "The latest analysis result doesn't contain any supported low-risk fixes I can apply automatically. " +
+          "Right now I can safely apply previewable fixes like unused-import cleanup when those findings appear. " +
+          "Try a repo with fixable issues, or ask me to explain the current findings or create a refactor plan instead.";
+        await respond(message, callback, noFixesText, "APPLY_SAFE_FIXES");
+        return {
+          success: true,
+          text: noFixesText,
+          data: {
+            repo: analysis.repo,
+            appliedCount: 0,
+            skippedCount: 0,
+            appliedFixIds: [],
+            changedFiles: [],
+            combinedDiff: "",
+            note: "No supported low-risk fixes were available in the cached analysis result.",
+          },
+        };
+      }
+
+      const result = await applySafeFixes(runtime, {
+        githubUrl: analysis.repo,
+        fixIds,
+      });
+      cacheApplyResult(message.roomId, result);
+      const summary = formatApplySummary(result);
+      await respond(message, callback, summary, "APPLY_SAFE_FIXES");
+
+      return {
+        success: true,
+        text: summary,
+        data: {
+          repo: result.repo,
+          appliedCount: result.applied_count,
+          skippedCount: result.skipped_count,
+          appliedFixIds: result.applied_fix_ids,
+          changedFiles: result.files.map((file) => file.file),
+          combinedDiff: result.combined_diff,
+        },
+      };
+    } catch (error) {
+      const messageText = error instanceof Error ? error.message : String(error);
+      logger.error({ error }, "Misoki apply-safe-fixes action failed");
+      await respond(message, callback, `Apply safe fixes failed: ${messageText}`, "APPLY_SAFE_FIXES");
+      return {
+        success: false,
+        error: messageText,
+      };
+    }
+  },
+};
+
+const createPrAction: Action = {
+  name: "CREATE_PR",
+  similes: ["DRAFT_PR", "PREPARE_PR", "MAKE_PULL_REQUEST"],
+  description:
+    "Prepare a pull-request draft from the most recent Misoki analysis and any safe fixes already applied in this chat.",
+  validate: async (_runtime: IAgentRuntime, message: Memory, _state?: State) => {
+    const text = getMessageText(message);
+    return getCachedAnalysis(message.roomId) !== null && extractGithubUrl(text) === null && CREATE_PR_RE.test(text);
+  },
+  handler: async (
+    _runtime: IAgentRuntime,
+    message: Memory,
+    _state?: State,
+    _options?: Record<string, unknown>,
+    callback?: HandlerCallback
+  ): Promise<ActionResult> => {
+    try {
+      const analysis = getCachedAnalysis(message.roomId);
+      if (!analysis) {
+        throw new Error("No repository analysis is cached for this chat yet.");
+      }
+
+      const cachedApply = getCachedApplyResult(message.roomId);
+      const draft = buildPrDraft(analysis, cachedApply?.response ?? null);
+      let summary = formatPrDraftSummary({
+        repo: analysis.repo,
+        branchName: draft.branchName,
+        title: draft.title,
+        body: draft.body,
+        appliedCount: draft.appliedCount,
+        changedFiles: draft.changedFiles,
+      });
+      let createdPr:
+        | {
+            prUrl: string;
+            prNumber: number;
+            headBranch: string;
+            baseBranch: string;
+            targetRepo: string;
+          }
+        | null = null;
+
+      if (cachedApply?.response.files.length) {
+        try {
+          createdPr = await createGitHubPrFromPatches(_runtime, {
+            analyzedRepoUrl: analysis.repo,
+            baseBranch: analysis.branch,
+            branchName: draft.branchName,
+            title: draft.title,
+            body: draft.body,
+            files: cachedApply.response.files,
+          });
+          summary = `${summary}\n\nDraft PR created: ${createdPr.prUrl}`;
+        } catch (error) {
+          const messageText = error instanceof Error ? error.message : String(error);
+          logger.warn({ error }, "Misoki real GitHub PR creation failed; returning draft only");
+          summary = `${summary}\n\nReal GitHub PR was not created automatically: ${messageText}`;
+        }
+      } else {
+        summary = `${summary}\n\nApply safe fixes first if you want a real PR with an attached patch set.`;
+      }
+      await respond(message, callback, summary, "CREATE_PR");
+
+      return {
+        success: true,
+        text: summary,
+        data: {
+          repo: analysis.repo,
+          branchName: draft.branchName,
+          title: draft.title,
+          body: draft.body,
+          appliedCount: draft.appliedCount,
+          changedFiles: draft.changedFiles,
+          combinedDiff: cachedApply?.response.combined_diff ?? "",
+          prUrl: createdPr?.prUrl ?? null,
+          prNumber: createdPr?.prNumber ?? null,
+          targetRepo: createdPr?.targetRepo ?? null,
+          note: createdPr
+            ? "A draft pull request was created through the GitHub API."
+            : "This prototype can prepare a PR draft and will create a real GitHub PR when a token and patch set are available.",
+        },
+      };
+    } catch (error) {
+      const messageText = error instanceof Error ? error.message : String(error);
+      logger.error({ error }, "Misoki create-pr action failed");
+      await respond(message, callback, `Create PR failed: ${messageText}`, "CREATE_PR");
+      return {
+        success: false,
+        error: messageText,
+      };
+    }
+  },
+};
+
 export const misokiPlugin: Plugin = {
   name: "misoki-plugin",
   description: "Integrates the Misoki analysis service into the Eliza project agent.",
@@ -852,6 +1112,8 @@ export const misokiPlugin: Plugin = {
     showFileDetailsAction,
     explainFindingAction,
     createRefactorPlanAction,
+    applySafeFixesAction,
+    createPrAction,
   ],
 };
 

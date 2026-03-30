@@ -1,4 +1,4 @@
-import type { AnalyzeRepoResponse, AnalysisIssue, PreviewFixResponse } from "./client";
+import type { ApplyFixResponse, AnalyzeRepoResponse, AnalysisIssue, PreviewFixResponse } from "./client";
 
 function formatIssue(issue: AnalysisIssue): string {
   const line = issue.line ? `:${issue.line}` : "";
@@ -130,4 +130,42 @@ function getTopFileByIssueWeight(issues: AnalysisIssue[]): string | null {
   }
 
   return bestFile;
+}
+
+export function formatApplySummary(result: ApplyFixResponse): string {
+  const changedFiles = result.files.map((file) => file.file).join(", ");
+  const skipped = result.skipped
+    .slice(0, 5)
+    .map((item) => `- ${item.fix_id}: ${item.reason}`)
+    .join("\n");
+
+  return [
+    `Applied safe fixes for ${result.repo}.`,
+    `Applied ${result.applied_count} fix(es) across ${result.files.length} file(s). Skipped ${result.skipped_count}.`,
+    changedFiles ? `Changed files: ${changedFiles}.` : "No files were changed.",
+    result.applied_fix_ids.length > 0 ? `Applied fix_ids: ${result.applied_fix_ids.join(", ")}` : "",
+    skipped ? `Skipped fixes:\n${skipped}` : "",
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
+export function formatPrDraftSummary(input: {
+  repo: string;
+  branchName: string;
+  title: string;
+  body: string;
+  appliedCount: number;
+  changedFiles: string[];
+}): string {
+  const bodyPreview = input.body.split("\n").slice(0, 12).join("\n");
+
+  return [
+    `Prepared PR draft for ${input.repo}.`,
+    `Branch suggestion: ${input.branchName}`,
+    `Title: ${input.title}`,
+    input.changedFiles.length > 0 ? `Files: ${input.changedFiles.join(", ")}` : "No file patch set is attached yet.",
+    `Applied safe fixes included: ${input.appliedCount}.`,
+    `Body preview:\n${bodyPreview}`,
+  ].join("\n");
 }

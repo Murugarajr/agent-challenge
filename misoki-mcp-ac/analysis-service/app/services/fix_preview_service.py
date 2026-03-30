@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from difflib import unified_diff
 from functools import lru_cache
+import re
 
 from app.core.github_fetcher import GitHubRepoFetcher
 from app.schemas.preview import PreviewFixRequest, PreviewFixResponse
@@ -35,7 +36,15 @@ class FixPreviewService:
             branch=request.branch,
         )
 
-        if parsed_fix.source_type != "unused_import":
+        if parsed_fix.source_type == "unused_import":
+            modified = self._remove_import_line(repo_file.content, parsed_fix.line)
+            risk = "low"
+            message = "Preview generated for unused import removal."
+        elif parsed_fix.source_type == "unused_variable":
+            modified = self._rewrite_unused_variable(repo_file.content, parsed_fix.line)
+            risk = "low"
+            message = "Preview generated for unused variable rewrite."
+        else:
             return PreviewFixResponse(
                 file=parsed_fix.file_path,
                 line=parsed_fix.line,
@@ -47,8 +56,6 @@ class FixPreviewService:
                 modified=repo_file.content,
                 diff="",
             )
-
-        modified = self._remove_line(repo_file.content, parsed_fix.line)
         diff = "".join(
             unified_diff(
                 repo_file.content.splitlines(keepends=True),
@@ -62,9 +69,9 @@ class FixPreviewService:
             file=parsed_fix.file_path,
             line=parsed_fix.line,
             source_type=parsed_fix.source_type,
-            risk="low",
+            risk=risk,
             supported=True,
-            message="Preview generated for unused import removal.",
+            message=message,
             original=repo_file.content,
             modified=modified,
             diff=diff,
@@ -92,7 +99,7 @@ class FixPreviewService:
             source_type=source_type,
         )
 
-    def _remove_line(self, content: str, line_number: int) -> str:
+    def _remove_import_line(self, content: str, line_number: int) -> str:
         lines = content.splitlines(keepends=True)
         if line_number < 1 or line_number > len(lines):
             raise ValueError("fix_id points to a line outside the file")
@@ -104,8 +111,25 @@ class FixPreviewService:
         del lines[line_number - 1]
         return "".join(lines)
 
+    def _rewrite_unused_variable(self, content: str, line_number: int) -> str:
+        lines = content.splitlines(keepends=True)
+        if line_number < 1 or line_number > len(lines):
+            raise ValueError("fix_id points to a line outside the file")
+
+        line = lines[line_number - 1]
+        match = re.match(
+            r"^(?P<indent>\s*)(?P<target>[A-Za-z_][A-Za-z0-9_]*)\s*=\s*(?P<expr>.+?)(?P<newline>\r?\n?)$",
+            line,
+        )
+        if not match:
+            raise ValueError("target line is not a simple assignment suitable for safe rewrite")
+
+        lines[line_number - 1] = (
+            f"{match.group('indent')}_ = {match.group('expr')}{match.group('newline')}"
+        )
+        return "".join(lines)
+
 
 @lru_cache(maxsize=1)
 def get_fix_preview_service() -> FixPreviewService:
     return FixPreviewService(get_settings())
-
