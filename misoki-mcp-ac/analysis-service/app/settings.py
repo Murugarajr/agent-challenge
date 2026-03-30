@@ -15,6 +15,7 @@ class Settings:
     max_concurrent_file_fetches: int
     ohm_mcp_src_path: str | None
     verify_ssl: bool
+    github_token: str | None
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -26,6 +27,7 @@ class Settings:
             max_concurrent_file_fetches=int(os.getenv("MISOKI_MAX_CONCURRENT_FILE_FETCHES", "5")),
             ohm_mcp_src_path=os.getenv("OHM_MCP_SRC_PATH"),
             verify_ssl=os.getenv("MISOKI_VERIFY_SSL", "true").lower() not in {"0", "false", "no"},
+            github_token=os.getenv("GITHUB_TOKEN") or os.getenv("MISOKI_GITHUB_TOKEN"),
         )
 
     @property

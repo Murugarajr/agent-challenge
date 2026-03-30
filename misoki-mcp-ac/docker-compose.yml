@@ -1,0 +1,58 @@
+version: "3.9"
+
+services:
+  # ── Python AST Analysis Service ──────────────────────────────────
+  analysis-service:
+    build:
+      context: ./analysis-service
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    environment:
+      - MISOKI_GITHUB_API_BASE=https://api.github.com
+      - MISOKI_MAX_REPO_FILES=40
+      - MISOKI_REQUEST_TIMEOUT_SECONDS=30
+      - OHM_MCP_SRC_PATH=${OHM_MCP_SRC_PATH:-}
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+  # ── ElizaOS Agent (TypeScript) ────────────────────────────────────
+  agent:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    ports:
+      - "3000:3000"
+    environment:
+      - OPENAI_BASE_URL=${NOSANA_MODEL_ENDPOINT}
+      - OPENAI_API_KEY=${NOSANA_API_KEY}
+      - MISOKI_ANALYSIS_SERVICE_URL=http://analysis-service:8000
+      - MISOKI_ANALYSIS_MAX_FILES=10
+    depends_on:
+      analysis-service:
+        condition: service_healthy
+
+  # ── React / Next.js Web Frontend ─────────────────────────────────
+  web:
+    build:
+      context: ./web
+      dockerfile: Dockerfile
+      args:
+        - NEXT_PUBLIC_ANALYSIS_SERVICE_URL=http://analysis-service:8000
+        - NEXT_PUBLIC_AGENT_URL=http://agent:3000
+    ports:
+      - "8080:3000"
+    environment:
+      - NEXT_PUBLIC_ANALYSIS_SERVICE_URL=http://analysis-service:8000
+      - NEXT_PUBLIC_AGENT_URL=http://agent:3000
+    depends_on:
+      - analysis-service
+      - agent
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3000/"]
+      interval: 20s
+      timeout: 5s
+      retries: 5

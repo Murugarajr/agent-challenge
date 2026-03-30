@@ -8,8 +8,8 @@ import re
 from app.core.github_fetcher import GitHubRepoFetcher
 from app.schemas.apply import (
     AppliedFilePatch,
-    AppliedFixRequest,
-    AppliedFixResponse,
+    ApplyFixRequest,
+    ApplyFixResponse,
     AppliedFixResult,
     SkippedFixResult,
 )
@@ -33,6 +33,7 @@ class ApplyFixService:
             max_file_bytes=settings.max_file_bytes,
             verify_ssl=settings.verify_ssl,
             max_concurrent_file_fetches=settings.max_concurrent_file_fetches,
+            github_token=settings.github_token,
         )
 
     async def apply_fixes(self, request: ApplyFixRequest) -> ApplyFixResponse:

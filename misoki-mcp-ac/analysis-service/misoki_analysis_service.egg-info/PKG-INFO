@@ -1,0 +1,40 @@
+Metadata-Version: 2.4
+Name: misoki-analysis-service
+Version: 0.1.0
+Summary: FastAPI analysis service for Misoki using ohm-mcp analyzers
+Requires-Python: >=3.11
+Description-Content-Type: text/markdown
+Requires-Dist: fastapi>=0.115.0
+Requires-Dist: pydantic>=2.7.0
+Requires-Dist: uvicorn[standard]>=0.30.0
+
+# Misoki Analysis Service
+
+FastAPI service that fetches a public GitHub repository, filters Python files, runs a curated subset of `ohm-mcp` analyzers, and returns normalized repo-level analysis results.
+
+## Run
+
+```bash
+uvicorn app.main:app --reload --port 8000
+```
+
+If local Python SSL certificates are broken, you can disable GitHub TLS verification for development only:
+
+```bash
+MISOKI_VERIFY_SSL=false uvicorn app.main:app --reload --port 8000
+```
+
+Useful tuning flags for local development:
+
+```bash
+MISOKI_VERIFY_SSL=false \
+MISOKI_MAX_CONCURRENT_FILE_FETCHES=5 \
+MISOKI_REQUEST_TIMEOUT_SECONDS=20 \
+uvicorn app.main:app --reload --port 8000
+```
+
+## Endpoints
+
+- `GET /health`
+- `POST /analyze/repo`
+- `POST /preview/fix`

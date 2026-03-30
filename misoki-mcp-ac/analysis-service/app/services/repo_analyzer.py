@@ -21,6 +21,7 @@ class RepoAnalyzerService:
             max_file_bytes=settings.max_file_bytes,
             verify_ssl=settings.verify_ssl,
             max_concurrent_file_fetches=settings.max_concurrent_file_fetches,
+            github_token=settings.github_token,
         )
         self.file_filter = PythonFileFilter(max_file_bytes=settings.max_file_bytes)
         self.issue_mapper = IssueMapper()
@@ -134,7 +135,7 @@ class RepoAnalyzerService:
             duplicates = self.duplication_detector.detect_duplicates(
                 project_root=str(project_root),
                 file_paths=file_paths,
-                include_near_duplicates=True,
+                include_near_duplicates=False,  # O(N^2) sliding window comparison causes hangs
                 include_functions=True,
             )
 

@@ -50,12 +50,14 @@ class GitHubRepoFetcher:
         max_file_bytes: int,
         verify_ssl: bool = True,
         max_concurrent_file_fetches: int = 5,
+        github_token: str | None = None,
     ):
         self.api_base = api_base.rstrip("/")
         self.timeout_seconds = timeout_seconds
         self.max_file_bytes = max_file_bytes
         self.verify_ssl = verify_ssl
         self.max_concurrent_file_fetches = max(1, max_concurrent_file_fetches)
+        self.github_token = github_token
 
     def parse_repo_url(self, github_url: str) -> ParsedRepo:
         match = GITHUB_REPO_RE.match(github_url.strip())
@@ -143,13 +145,14 @@ class GitHubRepoFetcher:
 
     def _get_json_sync(self, path: str) -> dict[str, Any]:
         url = f"{self.api_base}{path}"
-        request = Request(
-            url,
-            headers={
-                "Accept": "application/vnd.github+json",
-                "User-Agent": "misoki-analysis-service",
-            },
-        )
+        headers = {
+            "Accept": "application/vnd.github+json",
+            "User-Agent": "misoki-analysis-service",
+        }
+        if self.github_token:
+            headers["Authorization"] = f"Bearer {self.github_token}"
+            
+        request = Request(url, headers=headers)
         try:
             context = None if self.verify_ssl else ssl._create_unverified_context()
             with urlopen(request, timeout=self.timeout_seconds, context=context) as response:
