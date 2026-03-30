@@ -139,10 +139,21 @@ class RepoAnalyzerService:
                 include_functions=True,
             )
 
-        return [
-            self.issue_mapper.map_duplication_issue(duplicate)
-            for duplicate in duplicates.get("detailed_duplicates", [])
-        ]
+            issues = []
+            for duplicate in duplicates.get("detailed_duplicates", []):
+                # Clean up temp dir prefix from file paths
+                if "locations" in duplicate:
+                    for loc in duplicate["locations"]:
+                        if loc["file"].startswith(str(project_root)):
+                            loc["file"] = Path(loc["file"]).relative_to(project_root).as_posix()
+                if "functions" in duplicate:
+                    for func in duplicate["functions"]:
+                        if func["file"].startswith(str(project_root)):
+                            func["file"] = Path(func["file"]).relative_to(project_root).as_posix()
+                
+                issues.append(self.issue_mapper.map_duplication_issue(duplicate))
+
+        return issues
 
     def _analyze_type_hints(self, repo_file: RepoFile) -> list[AnalysisIssue]:
         coverage = self.type_hint_analyzer.analyze_coverage_only(repo_file.content, repo_file.path)

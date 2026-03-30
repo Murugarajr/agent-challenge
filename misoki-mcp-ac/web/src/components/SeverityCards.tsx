@@ -77,18 +77,19 @@ export default function SeverityCards({ summary, analysis }: Props) {
                             background: bg,
                             border: `1px solid ${border}`,
                             borderRadius: 12,
-                            padding: "18px 20px",
+                            padding: "12px",
                             display: "flex",
+                            flexDirection: "column",
                             alignItems: "flex-start",
-                            gap: 14,
+                            gap: 8,
                         }}
                     >
-                        <span style={{ color, marginTop: 2, flexShrink: 0 }}>{icon}</span>
+                        <span style={{ color, flexShrink: 0 }}>{icon}</span>
                         <div>
-                            <p style={{ fontSize: "2rem", fontWeight: 800, color, lineHeight: 1, letterSpacing: "-0.03em" }}>
+                            <p style={{ fontSize: "1.6rem", fontWeight: 800, color, lineHeight: 1, letterSpacing: "-0.03em" }}>
                                 <AnimatedNumber target={summary[key]} />
                             </p>
-                            <p style={{ fontSize: "0.78rem", color, opacity: 0.8, fontWeight: 600, marginTop: 2 }}>{label}</p>
+                            <p style={{ fontSize: "0.78rem", color, opacity: 0.8, fontWeight: 600, marginTop: 4 }}>{label}</p>
                         </div>
                     </div>
                 ))}

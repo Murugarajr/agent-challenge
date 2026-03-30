@@ -135,7 +135,7 @@ export default function ResultsPage() {
 
                 {/* ── Left sidebar: File tree + Category breakdown ── */}
                 <aside style={{
-                    width: 220,
+                    width: 340,
                     flexShrink: 0,
                     borderRight: "1px solid var(--border)",
                     display: "flex",

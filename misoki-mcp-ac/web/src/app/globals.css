@@ -14,10 +14,10 @@
   --text-secondary: #8890a8;
   --text-muted:     #535a70;
 
-  --accent-purple:  #8b5cf6;
-  --accent-cyan:    #06b6d4;
-  --accent-purple-glow: rgba(139,92,246,0.25);
-  --accent-cyan-glow:   rgba(6,182,212,0.20);
+  --accent-purple:  #ff7400; /* Re-mapped to Deep Orange */
+  --accent-cyan:    #ffde1a; /* Re-mapped to Light Yellow */
+  --accent-purple-glow: rgba(255,116,0,0.25);
+  --accent-cyan-glow:   rgba(255,222,26,0.20);
 
   --severity-critical: #ef4444;
   --severity-warning:  #f59e0b;
@@ -138,11 +138,12 @@ h3 { font-size: 1.125rem; font-weight: 600; }
   cursor: not-allowed;
 }
 .btn-primary {
-  background: linear-gradient(135deg, var(--accent-purple), var(--accent-cyan));
+  background: linear-gradient(135deg, #e65c00, #ff8d00);
   color: #fff;
   box-shadow: 0 0 20px var(--accent-purple-glow);
 }
 .btn-primary:hover:not(:disabled) {
+  background: linear-gradient(135deg, #cc5200, #e67e00);
   box-shadow: 0 0 32px var(--accent-purple-glow), 0 0 16px var(--accent-cyan-glow);
   transform: translateY(-1px);
 }

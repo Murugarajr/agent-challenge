@@ -202,24 +202,40 @@ export default function HomePage() {
       < section style={{ borderTop: "1px solid var(--border)", padding: "48px 24px" }
       }>
         <div className="container">
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 20 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 20 }}>
             {[
-              { icon: "🏗️", title: "Architecture", desc: "God objects, SOLID violations, circular deps" },
-              { icon: "🪦", title: "Dead Code", desc: "Unused imports, variables, unreachable blocks" },
-              { icon: "📋", title: "Duplication", desc: "Duplicate functions and near-identical blocks" },
-              { icon: "⚡", title: "Performance", desc: "Hotspots and inefficient patterns" },
-              { icon: "🔤", title: "Type Hints", desc: "Missing annotations and coverage gaps" },
-              { icon: "🔧", title: "Safe Fixes", desc: "Preview and apply low-risk patches as a PR" },
-            ].map(({ icon, title, desc }) => (
-              <div key={title} className="glass glass-hover" style={{ padding: "20px 22px" }}>
-                <span style={{ fontSize: "1.5rem", display: "block", marginBottom: 8 }}>{icon}</span>
-                <h3 style={{ marginBottom: 4, fontSize: "0.95rem" }}>{title}</h3>
-                <p style={{ fontSize: "0.82rem", color: "var(--text-secondary)", lineHeight: 1.5 }}>{desc}</p>
+              { icon: "🏗️", title: "Architecture & design", desc: "Detect violations and get pattern suggestions with DI refactors.", badge: "God objects · SOLID", inlineBadge: null },
+              { icon: "🔧", title: "Code refactoring", desc: "Extract methods, detect dead code, refactor imports, and rename symbols safely.", badge: null, inlineBadge: "AST-true" },
+              { icon: "📊", title: "Type safety & tests", desc: "Analyze type coverage, generate stubs, and auto-create tests for safe refactors.", badge: null, inlineBadge: null },
+              { icon: "⚡", title: "Performance hotspots", desc: "Catch performance smells and prioritize fixes by coverage.", badge: null, inlineBadge: null },
+              { icon: "🤖", title: "Automated, reversible execution", desc: "Dry-run, backup, apply patches, run tests, and auto-rollback on failure.", badge: null, inlineBadge: null },
+              { icon: "📈", title: "Quality dashboard", desc: "Generate HTML, Markdown, and JSON reports with health scores and metrics.", badge: null, inlineBadge: null },
+              { icon: "🧬", title: "Project-wide symbol ops", desc: "Safely rename symbols across the entire project with conflict detection.", badge: null, inlineBadge: null },
+              { icon: "📦", title: "Safer module migrations", desc: "Refactor imports when moving modules, keeping all call sites in sync.", badge: null, inlineBadge: null },
+            ].map(({ icon, title, desc, badge, inlineBadge }) => (
+              <div key={title} className="glass glass-hover" style={{ padding: "22px 24px", display: "flex", flexDirection: "column" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: badge ? 10 : 16 }}>
+                  <span style={{ fontSize: "1.25rem", display: "flex" }}>{icon}</span>
+                  <h3 style={{ fontSize: "1.05rem", fontWeight: 600, letterSpacing: "-0.01em" }}>{title}</h3>
+                  {inlineBadge && (
+                    <span style={{ fontSize: "0.65rem", background: "var(--surface-3)", padding: "2px 8px", borderRadius: 99, color: "var(--text-muted)", border: "1px solid var(--border)" }}>
+                      {inlineBadge}
+                    </span>
+                  )}
+                </div>
+                {badge && (
+                  <div style={{ marginBottom: 14 }}>
+                    <span style={{ fontSize: "0.7rem", background: "rgba(255,255,255,0.06)", padding: "3px 12px", borderRadius: 99, color: "var(--text-secondary)" }}>
+                      {badge}
+                    </span>
+                  </div>
+                )}
+                <p style={{ fontSize: "0.9rem", color: "var(--text-secondary)", lineHeight: 1.6, marginTop: "auto" }}>{desc}</p>
               </div>
             ))}
           </div>
         </div>
-      </section >
+      </section>
     </div >
   );
 }

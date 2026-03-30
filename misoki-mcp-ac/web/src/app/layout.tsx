@@ -46,8 +46,8 @@ export default function RootLayout({
                 <path d="M10 16 H18" stroke="url(#g)" strokeWidth="1.5" strokeLinecap="round" />
                 <defs>
                   <linearGradient id="g" x1="0" y1="0" x2="28" y2="28" gradientUnits="userSpaceOnUse">
-                    <stop stopColor="#8b5cf6" />
-                    <stop offset="1" stopColor="#06b6d4" />
+                    <stop stopColor="#ff7400" />
+                    <stop offset="1" stopColor="#ffde1a" />
                   </linearGradient>
                 </defs>
               </svg>
@@ -57,7 +57,7 @@ export default function RootLayout({
             </a>
             <nav style={{ display: "flex", alignItems: "center", gap: 20 }}>
               <a
-                href="https://github.com"
+                href="https://github.com/Murugarajr/ohm-mcp"
                 target="_blank"
                 rel="noopener noreferrer"
                 style={{ color: "var(--text-secondary)", fontSize: "0.85rem", display: "flex", alignItems: "center", gap: 6 }}
