@@ -154,7 +154,14 @@ class GitHubRepoFetcher:
             
         request = Request(url, headers=headers)
         try:
-            context = None if self.verify_ssl else ssl._create_unverified_context()
+            if self.verify_ssl:
+                try:
+                    import certifi
+                    context = ssl.create_default_context(cafile=certifi.where())
+                except ImportError:
+                    context = ssl.create_default_context()
+            else:
+                context = ssl._create_unverified_context()
             with urlopen(request, timeout=self.timeout_seconds, context=context) as response:
                 return json.loads(response.read().decode("utf-8"))
         except HTTPError as exc:

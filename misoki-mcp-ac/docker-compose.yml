@@ -1,5 +1,3 @@
-version: "3.9"
-
 services:
   # ── Python AST Analysis Service ──────────────────────────────────
   analysis-service:
@@ -12,7 +10,7 @@ services:
       - MISOKI_GITHUB_API_BASE=https://api.github.com
       - MISOKI_MAX_REPO_FILES=40
       - MISOKI_REQUEST_TIMEOUT_SECONDS=30
-      - OHM_MCP_SRC_PATH=${OHM_MCP_SRC_PATH:-}
+      - OHM_MCP_SRC_PATH=/app/../ohm-mcp
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
       interval: 15s
@@ -52,7 +50,7 @@ services:
       - analysis-service
       - agent
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:3000/"]
+      test: ["CMD", "wget", "-qO-", "http://localhost:3000/api/health"]
       interval: 20s
       timeout: 5s
       retries: 5

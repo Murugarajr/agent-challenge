@@ -1,11 +1,15 @@
 "use client";
 
-import { useEffect, useRef, useState, useCallback } from "react";
+import { useEffect, useRef, useState, useCallback, forwardRef, useImperativeHandle } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
 type Message = { role: "user" | "agent"; text: string; ts: number };
-type Props = { repoUrl: string | null };
+type Props = { repoUrl: string | null; initialPrompt?: string | null };
+
+export type ChatPanelRef = {
+    sendExternalMessage: (text: string) => void;
+};
 
 // ElizaOS instance constants
 const AGENT_ID  = "b88d661a-1254-0efc-a2a6-0edd6905287b";
@@ -20,7 +24,7 @@ const PROXY = "/api/agent";
 const REPLY_TIMEOUT_MS = 300_000; // 5 minutes — LLM can be slow
 const POLL_INTERVAL_MS = 2_000;
 
-export default function ChatPanel({ repoUrl }: Props) {
+export default forwardRef<ChatPanelRef, Props>(function ChatPanel({ repoUrl, initialPrompt }, ref) {
     const [messages, setMessages] = useState<Message[]>([{
         role: "agent", ts: Date.now(),
         text: repoUrl
@@ -31,6 +35,9 @@ export default function ChatPanel({ repoUrl }: Props) {
     const [sending, setSending]     = useState(false);
     const [channelId, setChannelId] = useState<string | null>(null);
     const [status, setStatus]       = useState<"connecting" | "ready" | "error">("connecting");
+    // Track whether the agent has been primed with the repo URL
+    const [agentPrimed, setAgentPrimed] = useState(false);
+    const [agentPrimeDone, setAgentPrimeDone] = useState(false);
     const bottomRef   = useRef<HTMLDivElement>(null);
     const pollTimer   = useRef<ReturnType<typeof setTimeout> | null>(null);
     // We track the timestamp at which we sent the user message,
@@ -46,7 +53,7 @@ export default function ChatPanel({ repoUrl }: Props) {
         let dead = false;
         (async () => {
             try {
-                const r = await fetch(`${PROXY}/api/messaging/central-servers/${SERVER_ID}/channels`);
+                const r = await fetch(`${PROXY}/api/messaging/message-servers/${SERVER_ID}/channels`);
                 const j = await r.json() as {
                     success: boolean;
                     data: { channels: Array<{ id: string; metadata: { forAgent?: string } }> };
@@ -63,10 +70,44 @@ export default function ChatPanel({ repoUrl }: Props) {
         return () => { dead = true; };
     }, []);
 
+    // Auto-trigger agent analysis when channel is ready and we have a repo URL.
+    // This seeds the agent's in-memory cache so follow-up commands work.
+    useEffect(() => {
+        if (!channelId || status !== "ready" || agentPrimed) return;
+        
+        if (!repoUrl) {
+            setAgentPrimeDone(true);
+            return;
+        }
+
+        setAgentPrimed(true);
+
+        (async () => {
+            try {
+                await fetch(`${PROXY}/api/messaging/channels/${channelId}/messages`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                        channelId,
+                        message_server_id: SERVER_ID,
+                        author_id: USER_ID,
+                        content: `Analyze ${repoUrl}`,
+                        source_type: "eliza_gui",
+                        metadata: { user_display_name: USER_NAME, auto_prime: true },
+                    }),
+                });
+            } catch {
+                // Silent — priming is best-effort
+            } finally {
+                setAgentPrimeDone(true);
+            }
+        })();
+    }, [channelId, repoUrl, agentPrimed, status]);
+
     // Poll for agent replies created AFTER the message we sent
     const pollForReply = useCallback(async (chId: string, afterTs: number): Promise<boolean> => {
         try {
-            const r = await fetch(`${PROXY}/api/messaging/central-channels/${chId}/messages?limit=20`);
+            const r = await fetch(`${PROXY}/api/messaging/channels/${chId}/messages?limit=20`);
             if (!r.ok) return false;
             const j = await r.json() as {
                 success: boolean;
@@ -96,6 +137,7 @@ export default function ChatPanel({ repoUrl }: Props) {
     useEffect(() => {
         if (!sending || !channelId) return;
 
+        const chId       = channelId; // capture for closure (TS narrowing)
         const startedAt  = Date.now();
         let   stopped    = false;
 
@@ -113,7 +155,7 @@ export default function ChatPanel({ repoUrl }: Props) {
                 return;
             }
 
-            const got = await pollForReply(channelId, sentAtRef.current);
+            const got = await pollForReply(chId, sentAtRef.current);
             if (got || stopped) return;
 
             pollTimer.current = setTimeout(tick, POLL_INTERVAL_MS);
@@ -127,23 +169,33 @@ export default function ChatPanel({ repoUrl }: Props) {
         };
     }, [sending, channelId, pollForReply]);
 
-    async function sendMessage(e: React.FormEvent) {
-        e.preventDefault();
-        const text = input.trim();
+    const [pendingPrompt, setPendingPrompt] = useState(initialPrompt);
+
+    useEffect(() => {
+        if (status === "ready" && channelId && pendingPrompt && !sending && agentPrimeDone) {
+            sendMessage(undefined, pendingPrompt);
+            setPendingPrompt(null);
+        }
+    }, [status, channelId, pendingPrompt, sending, agentPrimeDone]); // eslint-disable-line react-hooks/exhaustive-deps
+
+    async function sendMessage(e?: React.FormEvent, overrideText?: string) {
+        if (e) e.preventDefault();
+        const text = (overrideText ?? input).trim();
         if (!text || sending || !channelId) return;
 
-        setInput("");
+        if (!overrideText) setInput("");
         const ts = Date.now();
         sentAtRef.current = ts; // record when we sent so polling can filter by it
         setMessages(prev => [...prev, { role: "user", text, ts }]);
         setSending(true);
 
-        const content = repoUrl && !text.includes("github.com")
-            ? `${text} (Repo: ${repoUrl})`
-            : text;
+        // Do NOT append the repo URL — it breaks follow-up action validators
+        // (they reject messages containing GitHub URLs). The agent already has
+        // the analysis cached from the auto-prime message sent on connect.
+        const content = text;
 
         try {
-            const r = await fetch(`${PROXY}/api/messaging/central-channels/${channelId}/messages`, {
+            const r = await fetch(`${PROXY}/api/messaging/channels/${channelId}/messages`, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({
@@ -174,6 +226,12 @@ export default function ChatPanel({ repoUrl }: Props) {
 
     const dotColor = status === "ready" ? "#22c55e" : status === "error" ? "#ef4444" : "#f59e0b";
     const dotGlow  = status === "ready" ? "0 0 6px #22c55e" : "none";
+
+    useImperativeHandle(ref, () => ({
+        sendExternalMessage: (text: string) => {
+            sendMessage(undefined, text);
+        }
+    }), [input, sending, channelId]); // eslint-disable-line react-hooks/exhaustive-deps
 
     return (
         <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
@@ -289,4 +347,4 @@ export default function ChatPanel({ repoUrl }: Props) {
             </form>
         </div>
     );
-}
+});

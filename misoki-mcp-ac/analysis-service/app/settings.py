@@ -4,6 +4,15 @@ import os
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
+from dotenv import load_dotenv
+
+# Automatically load the .env from the root agent-challenge directory
+# if it exists, so the debugger/VSCode UI natively picks up GITHUB_TOKEN
+_root_env = Path(__file__).resolve().parents[1] / ".env"
+if _root_env.exists():
+    load_dotenv(_root_env)
+else:
+    load_dotenv()
 
 
 @dataclass(frozen=True)

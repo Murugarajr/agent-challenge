@@ -91,7 +91,7 @@ async function generateChatCompletion(
       ...(systemPrompt ? [{ role: "system", content: systemPrompt }] : []),
       { role: "user", content: params.prompt },
     ],
-    max_tokens: params.maxTokens ?? 8192,
+    max_tokens: params.maxTokens ?? 4096,
     temperature: params.temperature,
     top_p: params.topP,
     stop: params.stopSequences,

@@ -521,7 +521,8 @@ function runAnalyzeRepoInBackground(runtime: IAgentRuntime, message: Memory, git
           repo: result.repo,
           commit: result.commit,
           summary: result.summary,
-          issues: result.issues,
+          // Limit issues to 15 to prevent context memory blowout in ElizaOS (SQLite state)
+          issues: result.issues.slice(0, 15),
         },
       });
       await postChatSummary(runtime, message, summary);

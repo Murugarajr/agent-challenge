@@ -1,0 +1,67 @@
+{
+  "version": "1",
+  "type": "container",
+  "meta": {
+    "trigger": "api",
+    "name": "misoki-full-stack",
+    "description": "Misoki - AI-powered Python code analysis with ElizaOS orchestrator"
+  },
+  "ops": [
+    {
+      "id": "analysis-service",
+      "type": "container/run",
+      "args": {
+        "image": "misoki/analysis-service:latest",
+        "gpu": false,
+        "expose": 8000,
+        "env": {
+          "MISOKI_GITHUB_API_BASE": "https://api.github.com",
+          "MISOKI_MAX_REPO_FILES": "40",
+          "MISOKI_REQUEST_TIMEOUT_SECONDS": "30"
+        },
+        "healthcheck": {
+          "path": "/health",
+          "interval": 15,
+          "timeout": 5,
+          "retries": 5
+        }
+      }
+    },
+    {
+      "id": "eliza-agent",
+      "type": "container/run",
+      "args": {
+        "image": "misoki/eliza-agent:latest",
+        "gpu": true,
+        "expose": 3000,
+        "env": {
+          "OPENAI_API_KEY": "{{ secrets.NOSANA_API_KEY }}",
+          "OPENAI_BASE_URL": "{{ secrets.NOSANA_MODEL_ENDPOINT }}",
+          "MISOKI_ANALYSIS_SERVICE_URL": "http://analysis-service:8000",
+          "MISOKI_ANALYSIS_MAX_FILES": "10"
+        },
+        "depends_on": ["analysis-service"]
+      }
+    },
+    {
+      "id": "web-frontend",
+      "type": "container/run",
+      "args": {
+        "image": "misoki/web:latest",
+        "gpu": false,
+        "expose": 3000,
+        "env": {
+          "NEXT_PUBLIC_ANALYSIS_SERVICE_URL": "http://analysis-service:8000",
+          "NEXT_PUBLIC_AGENT_URL": "http://eliza-agent:3000"
+        },
+        "depends_on": ["analysis-service", "eliza-agent"]
+      }
+    }
+  ],
+  "networking": {
+    "ingress": {
+      "port": 8080,
+      "target": "web-frontend:3000"
+    }
+  }
+}
