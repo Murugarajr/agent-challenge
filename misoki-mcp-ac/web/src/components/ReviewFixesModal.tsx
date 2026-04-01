@@ -391,13 +391,14 @@ export default function ReviewFixesModal({
                         style={{
                             background: noneSelected || applying
                                 ? "var(--surface-3)"
-                                : "linear-gradient(135deg, #7c3aed, #9333ea)",
+                                : "linear-gradient(135deg, #e65c00, #ff8d00)",
                             color: noneSelected || applying ? "var(--text-muted)" : "#fff",
                             border: "none", borderRadius: 8,
                             cursor: noneSelected || applying ? "not-allowed" : "pointer",
                             padding: "8px 20px", fontSize: "0.85rem", fontWeight: 600,
                             display: "flex", alignItems: "center", gap: 6,
-                            transition: "background 0.2s",
+                            boxShadow: noneSelected || applying ? "none" : "0 0 20px rgba(230,92,0,0.15)",
+                            transition: "background 0.2s, box-shadow 0.2s",
                         }}
                     >
                         {applying ? (

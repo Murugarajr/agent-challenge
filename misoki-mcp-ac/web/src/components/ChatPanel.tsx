@@ -5,7 +5,11 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
 type Message = { role: "user" | "agent"; text: string; ts: number };
-type Props = { repoUrl: string | null; initialPrompt?: string | null };
+type Props = {
+    repoUrl: string | null;
+    initialPrompt?: string | null;
+    onAction?: (action: string) => void;
+};
 
 export type ChatPanelRef = {
     sendExternalMessage: (text: string) => void;
@@ -24,11 +28,25 @@ const PROXY = "/api/agent";
 const REPLY_TIMEOUT_MS = 300_000; // 5 minutes — LLM can be slow
 const POLL_INTERVAL_MS = 2_000;
 
-export default forwardRef<ChatPanelRef, Props>(function ChatPanel({ repoUrl, initialPrompt }, ref) {
+type SuggestedPrompt = {
+    label: string;
+    action?: string;
+};
+
+const SUGGESTED_PROMPTS: SuggestedPrompt[] = [
+    { label: "Show me the worst file" },
+    { label: "Explain the top critical issue" },
+    { label: "Create a refactor plan" },
+    { label: "Show top 5 performance issues" },
+    { label: "List all dead code findings" },
+    { label: "Apply safe fixes", action: "OPEN_REVIEW_PATCHES" },
+];
+
+export default forwardRef<ChatPanelRef, Props>(function ChatPanel({ repoUrl, initialPrompt, onAction }, ref) {
     const [messages, setMessages] = useState<Message[]>([{
         role: "agent", ts: Date.now(),
         text: repoUrl
-            ? `Repository **${repoUrl}** analysed. Ask me:\n- "Show me the worst file"\n- "Explain the top critical issue"\n- "Create a refactor plan"`
+            ? `Repository **${repoUrl}** analysed. Ask me:`
             : "Hello! Paste a GitHub repository URL to get started.",
     }]);
     const [input, setInput]         = useState("");
@@ -269,7 +287,8 @@ export default forwardRef<ChatPanelRef, Props>(function ChatPanel({ repoUrl, ini
             {/* Messages */}
             <div style={{ flex: 1, overflowY: "auto", padding: 14, display: "flex", flexDirection: "column", gap: 12 }}>
                 {messages.map((msg, i) => (
-                    <div key={i} style={{ display: "flex", flexDirection: "column", alignItems: msg.role === "user" ? "flex-end" : "flex-start" }}>
+                    <div key={i}>
+                        <div style={{ display: "flex", flexDirection: "column", alignItems: msg.role === "user" ? "flex-end" : "flex-start" }}>
                         <div style={{
                             maxWidth: "88%", padding: "9px 13px",
                             borderRadius: msg.role === "user" ? "14px 14px 4px 14px" : "14px 14px 14px 4px",
@@ -319,6 +338,48 @@ export default forwardRef<ChatPanelRef, Props>(function ChatPanel({ repoUrl, ini
                         <span style={{ fontSize: "0.68rem", color: "var(--text-muted)", marginTop: 3, paddingInline: 2 }}>
                             {new Date(msg.ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
                         </span>
+                        </div>
+                        {i === 0 && msg.role === "agent" && repoUrl && (
+                            <div style={{
+                                display: "flex", flexWrap: "wrap", gap: 6,
+                                marginTop: 8, paddingLeft: 2,
+                            }}>
+                                {SUGGESTED_PROMPTS.map((prompt) => (
+                                    <button
+                                        key={prompt.label}
+                                        onClick={() => {
+                                            if (prompt.action && onAction) {
+                                                onAction(prompt.action);
+                                            } else {
+                                                sendMessage(undefined, prompt.label);
+                                            }
+                                        }}
+                                        disabled={!prompt.action && (sending || status !== "ready")}
+                                        style={{
+                                            background: "var(--surface-2)",
+                                            border: "1px solid var(--border)",
+                                            borderRadius: 20,
+                                            padding: "5px 12px",
+                                            fontSize: "0.74rem",
+                                            color: "var(--accent-cyan)",
+                                            cursor: (!prompt.action && sending) ? "not-allowed" : "pointer",
+                                            transition: "all 0.15s ease",
+                                            whiteSpace: "nowrap",
+                                        }}
+                                        onMouseEnter={(e) => {
+                                            e.currentTarget.style.background = "var(--surface-3)";
+                                            e.currentTarget.style.borderColor = "var(--accent-cyan)";
+                                        }}
+                                        onMouseLeave={(e) => {
+                                            e.currentTarget.style.background = "var(--surface-2)";
+                                            e.currentTarget.style.borderColor = "var(--border)";
+                                        }}
+                                    >
+                                        {prompt.label}
+                                    </button>
+                                ))}
+                            </div>
+                        )}
                     </div>
                 ))}
                 {sending && (

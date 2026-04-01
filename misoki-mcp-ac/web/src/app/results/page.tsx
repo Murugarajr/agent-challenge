@@ -223,14 +223,14 @@ export default function ResultsPage() {
 
                 {/* Chat toggle */}
                 <button
-                    className="btn btn-ghost btn-sm"
+                    className="btn btn-primary btn-sm"
                     onClick={() => setChatOpen((o) => !o)}
                     style={{ display: "flex", alignItems: "center", gap: 5 }}
                 >
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
                         <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
                     </svg>
-                    {chatOpen ? "Hide Chat" : "Ask Agent"}
+                    {chatOpen ? "Hide Chat" : "Ask Misoki"}
                 </button>
             </div>
 
@@ -291,7 +291,16 @@ export default function ResultsPage() {
                             overflow: "hidden",
                         }}
                     >
-                        <ChatPanel ref={chatRef} repoUrl={analysis.repo} initialPrompt={chatInitialPrompt} />
+                        <ChatPanel
+                            ref={chatRef}
+                            repoUrl={analysis.repo}
+                            initialPrompt={chatInitialPrompt}
+                            onAction={(action) => {
+                                if (action === "OPEN_REVIEW_PATCHES" && fixableIssues.length > 0) {
+                                    setReviewOpen(true);
+                                }
+                            }}
+                        />
                     </aside>
                 )}
             </div>
