@@ -139,10 +139,10 @@ function getBackgroundAnalysisMaxFiles(runtime: IAgentRuntime): number {
   const normalized = rawValue !== null && rawValue !== undefined ? String(rawValue).trim() : "";
   const parsed = Number.parseInt(normalized, 10);
   if (!Number.isFinite(parsed) || parsed < 1) {
-    return 1;
+    return 5;
   }
 
-  return 1;
+  return parsed;
 }
 
 function getRepoAnalysisKey(message: Memory, githubUrl: string): string {

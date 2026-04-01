@@ -1,4 +1,4 @@
-import type { ApplyFixResponse, BatchPreviewResponse, PreviewFixResponse, RepoAnalyzeResponse } from "./types";
+import type { ApplyFixResponse, AppliedFilePatch, BatchPreviewResponse, CreatePrResponse, PreviewFixResponse, RepoAnalyzeResponse } from "./types";
 
 function getBaseUrl(): string {
     // Always route through the Next.js rewrite proxy (/api/analysis → analysis
@@ -99,4 +99,48 @@ export async function applySafeFixes(
         fix_ids: fixIds,
         branch: branch ?? null,
     });
+}
+
+export async function createDraftPr(
+    githubUrl: string,
+    baseBranch: string,
+    files: AppliedFilePatch[],
+    title: string,
+    body: string
+): Promise<CreatePrResponse> {
+    const repoName = githubUrl.replace(/\/$/, "").split("/").pop() ?? "repo";
+    const timestamp = new Date().toISOString().slice(0, 10);
+    const branchName = `misoki/${repoName}-safe-fixes-${timestamp}`;
+
+    const url = "/api/github/create-pr";
+    const res = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+            github_url: githubUrl,
+            base_branch: baseBranch,
+            branch_name: branchName,
+            title,
+            body,
+            files: files.map((f) => ({ file: f.file, modified: f.modified })),
+        }),
+    });
+
+    const text = await res.text();
+    let parsed: unknown;
+    try {
+        parsed = JSON.parse(text);
+    } catch {
+        throw new Error(`Server returned invalid JSON: ${text.slice(0, 300)}`);
+    }
+
+    if (!res.ok) {
+        const error =
+            parsed && typeof parsed === "object" && "error" in parsed
+                ? (parsed as Record<string, string>).error
+                : text.slice(0, 300);
+        throw new Error(`PR creation failed: ${error}`);
+    }
+
+    return parsed as CreatePrResponse;
 }

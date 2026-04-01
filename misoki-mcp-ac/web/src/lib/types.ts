@@ -86,3 +86,12 @@ export type ApplyFixResponse = {
     files: AppliedFilePatch[];
     combined_diff: string;
 };
+
+export type CreatePrResponse = {
+    pr_url: string;
+    pr_number: number;
+    branch: string;
+    base_branch: string;
+    forked?: boolean;
+    work_repo?: string;
+};
