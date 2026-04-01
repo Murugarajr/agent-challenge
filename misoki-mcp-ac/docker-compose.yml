@@ -1,3 +1,5 @@
+version: '3.8'
+
 services:
   # ── Python AST Analysis Service ──────────────────────────────────
   analysis-service:
@@ -6,11 +8,13 @@ services:
       dockerfile: Dockerfile
     ports:
       - "8000:8000"
+    volumes:
+      - ${PWD}/../../ohm-mcp:/app/ohm-mcp:ro
     environment:
       - MISOKI_GITHUB_API_BASE=https://api.github.com
       - MISOKI_MAX_REPO_FILES=40
       - MISOKI_REQUEST_TIMEOUT_SECONDS=30
-      - OHM_MCP_SRC_PATH=/app/../ohm-mcp
+      - OHM_MCP_SRC_PATH=/app/ohm-mcp
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
       interval: 15s
@@ -39,13 +43,15 @@ services:
       context: ./web
       dockerfile: Dockerfile
       args:
-        - NEXT_PUBLIC_ANALYSIS_SERVICE_URL=http://analysis-service:8000
-        - NEXT_PUBLIC_AGENT_URL=http://agent:3000
+        - NEXT_PUBLIC_ANALYSIS_SERVICE_URL=http://host.docker.internal:8000
+        - NEXT_PUBLIC_AGENT_URL=http://host.docker.internal:3000
     ports:
       - "8080:3000"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     environment:
-      - NEXT_PUBLIC_ANALYSIS_SERVICE_URL=http://analysis-service:8000
-      - NEXT_PUBLIC_AGENT_URL=http://agent:3000
+      - NEXT_PUBLIC_ANALYSIS_SERVICE_URL=http://host.docker.internal:8000
+      - NEXT_PUBLIC_AGENT_URL=http://host.docker.internal:3000
     depends_on:
       - analysis-service
       - agent
