@@ -3,7 +3,7 @@
 import { useEffect, useState, useRef } from "react";
 import { useRouter } from "next/navigation";
 import type { AnalysisIssue, ApplyFixResponse, PreviewFixResponse, RepoAnalyzeResponse } from "@/lib/types";
-import { applySafeFixes, previewFix } from "@/lib/api";
+import { previewFix } from "@/lib/api";
 
 import SeverityCards from "@/components/SeverityCards";
 import CategoryBreakdown from "@/components/CategoryBreakdown";
@@ -11,6 +11,7 @@ import FileTree from "@/components/FileTree";
 import IssueList from "@/components/IssueList";
 import DiffViewer from "@/components/DiffViewer";
 import ChatPanel, { ChatPanelRef } from "@/components/ChatPanel";
+import ReviewFixesModal from "@/components/ReviewFixesModal";
 
 export default function ResultsPage() {
     const router = useRouter();
@@ -22,11 +23,10 @@ export default function ResultsPage() {
         loading: boolean;
     } | null>(null);
     const [chatOpen, setChatOpen] = useState(false);
+    const [reviewOpen, setReviewOpen] = useState(false);
     const [applyState, setApplyState] = useState<{
-        loading: boolean;
         result: ApplyFixResponse | null;
-        error: string | null;
-    }>({ loading: false, result: null, error: null });
+    }>({ result: null });
 
     useEffect(() => {
         const raw = sessionStorage.getItem("misoki_analysis");
@@ -67,16 +67,9 @@ export default function ResultsPage() {
         }
     }
 
-    async function handleApplySafeFixes() {
-        if (!analysis || fixableIssues.length === 0) return;
-        setApplyState({ loading: true, result: null, error: null });
-        try {
-            const fixIds = fixableIssues.map((i) => i.fix_id);
-            const result = await applySafeFixes(analysis.repo, fixIds, analysis.branch);
-            setApplyState({ loading: false, result, error: null });
-        } catch (err) {
-            setApplyState({ loading: false, result: null, error: err instanceof Error ? err.message : String(err) });
-        }
+    function handlePatched(result: ApplyFixResponse) {
+        setReviewOpen(false);
+        setApplyState({ result });
     }
 
     async function handlePreviewFix(issue: AnalysisIssue) {
@@ -160,33 +153,18 @@ export default function ResultsPage() {
                     {analysis.issues.length} issues · {analysis.files_scanned} files
                 </span>
 
-                {/* Apply safe fixes */}
-                {fixableIssues.length > 0 && !applyState.result && (
+                {/* Review & generate patches */}
+                {fixableIssues.length > 0 && (
                     <button
                         className="btn btn-primary btn-sm"
-                        onClick={handleApplySafeFixes}
-                        disabled={applyState.loading}
+                        onClick={() => setReviewOpen(true)}
                         style={{ display: "flex", alignItems: "center", gap: 5 }}
                     >
-                        {applyState.loading ? (
-                            <>
-                                <span style={{
-                                    width: 12, height: 12, borderRadius: "50%",
-                                    border: "2px solid rgba(255,255,255,0.3)",
-                                    borderTopColor: "#fff",
-                                    animation: "spin 0.7s linear infinite",
-                                    display: "inline-block",
-                                }} />
-                                Applying…
-                            </>
-                        ) : (
-                            <>
-                                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
-                                    <path d="M12 20h9" /><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" />
-                                </svg>
-                                Apply Safe Fixes ({fixableIssues.length})
-                            </>
-                        )}
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+                            <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+                            <circle cx="12" cy="12" r="3" />
+                        </svg>
+                        Review Patches ({fixableIssues.length})
                     </button>
                 )}
                 {applyState.result && (
@@ -194,13 +172,8 @@ export default function ResultsPage() {
                         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
                             <polyline points="20 6 9 17 4 12" />
                         </svg>
-                        {applyState.result.applied_count} fix(es) applied
+                        {applyState.result.applied_count} patch{applyState.result.applied_count !== 1 ? "es" : ""} generated
                         {applyState.result.skipped_count > 0 && `, ${applyState.result.skipped_count} skipped`}
-                    </span>
-                )}
-                {applyState.error && (
-                    <span style={{ fontSize: "0.78rem", color: "var(--severity-critical)" }}>
-                        Apply failed: {applyState.error}
                     </span>
                 )}
 
@@ -279,7 +252,18 @@ export default function ResultsPage() {
                 )}
             </div>
 
-            {/* ── Apply results overlay ── */}
+            {/* ── Review fixes modal ── */}
+            {reviewOpen && analysis && (
+                <ReviewFixesModal
+                    repoUrl={analysis.repo}
+                    branch={analysis.branch}
+                    fixableIssues={fixableIssues}
+                    onClose={() => setReviewOpen(false)}
+                    onPatched={handlePatched}
+                />
+            )}
+
+            {/* ── Patches generated overlay ── */}
             {applyState.result && applyState.result.files.length > 0 && (
                 <div
                     className="anim-fade-in"
@@ -304,9 +288,9 @@ export default function ResultsPage() {
                         <div style={{ padding: "14px 20px", borderBottom: "1px solid var(--border)", display: "flex", alignItems: "center", gap: 12, background: "var(--surface-1)" }}>
                             <span style={{ fontSize: "1.2rem" }}>✅</span>
                             <div style={{ flex: 1 }}>
-                                <p style={{ fontSize: "0.9rem", fontWeight: 600 }}>Safe Fixes Applied</p>
+                            <p style={{ fontSize: "0.9rem", fontWeight: 600 }}>Patches Generated</p>
                                 <p style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>
-                                    {applyState.result.applied_count} applied · {applyState.result.skipped_count} skipped · {applyState.result.files.length} file(s) changed
+                                    {applyState.result.applied_count} patch{applyState.result.applied_count !== 1 ? "es" : ""} · {applyState.result.skipped_count} skipped · {applyState.result.files.length} file(s) · nothing pushed to GitHub
                                 </p>
                             </div>
                             {applyState.result.combined_diff && (

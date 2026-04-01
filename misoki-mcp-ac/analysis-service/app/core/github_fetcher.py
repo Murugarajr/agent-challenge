@@ -143,7 +143,7 @@ class GitHubRepoFetcher:
     async def _get_json(self, path: str) -> dict[str, Any]:
         return await asyncio.to_thread(self._get_json_sync, path)
 
-    def _get_json_sync(self, path: str) -> dict[str, Any]:
+    def _get_json_sync(self, path: str, _retries: int = 2) -> dict[str, Any]:
         url = f"{self.api_base}{path}"
         headers = {
             "Accept": "application/vnd.github+json",
@@ -151,24 +151,39 @@ class GitHubRepoFetcher:
         }
         if self.github_token:
             headers["Authorization"] = f"Bearer {self.github_token}"
-            
+
         request = Request(url, headers=headers)
-        try:
-            if self.verify_ssl:
-                try:
-                    import certifi
-                    context = ssl.create_default_context(cafile=certifi.where())
-                except ImportError:
-                    context = ssl.create_default_context()
-            else:
-                context = ssl._create_unverified_context()
-            with urlopen(request, timeout=self.timeout_seconds, context=context) as response:
-                return json.loads(response.read().decode("utf-8"))
-        except HTTPError as exc:
-            body = exc.read().decode("utf-8", errors="replace")
-            raise RuntimeError(f"GitHub API request failed: {exc.code} {body}") from exc
-        except URLError as exc:
-            raise RuntimeError(f"GitHub API request failed: {exc.reason}") from exc
+        if self.verify_ssl:
+            try:
+                import certifi
+                context = ssl.create_default_context(cafile=certifi.where())
+            except ImportError:
+                context = ssl.create_default_context()
+        else:
+            context = ssl._create_unverified_context()
+
+        last_exc: Exception | None = None
+        for attempt in range(_retries + 1):
+            try:
+                with urlopen(request, timeout=self.timeout_seconds, context=context) as response:
+                    return json.loads(response.read().decode("utf-8"))
+            except HTTPError as exc:
+                body = exc.read().decode("utf-8", errors="replace")
+                if exc.code in (403, 429, 502, 503) and attempt < _retries:
+                    import time
+                    time.sleep(1.5 * (attempt + 1))
+                    last_exc = RuntimeError(f"GitHub API request failed: {exc.code} {body}")
+                    continue
+                raise RuntimeError(f"GitHub API request failed: {exc.code} {body}") from exc
+            except URLError as exc:
+                if attempt < _retries:
+                    import time
+                    time.sleep(1.5 * (attempt + 1))
+                    last_exc = RuntimeError(f"GitHub API request failed: {exc.reason}")
+                    continue
+                raise RuntimeError(f"GitHub API request failed: {exc.reason}") from exc
+
+        raise last_exc or RuntimeError("GitHub API request failed after retries")
 
     async def _get_file_content(
         self,

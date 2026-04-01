@@ -57,6 +57,24 @@ export type AppliedFilePatch = {
     diff: string;
 };
 
+export type BatchPreviewItem = {
+    fix_id: string;
+    file: string;
+    line?: number | null;
+    source_type: string;
+    risk: string;
+    supported: boolean;
+    message: string;
+    diff: string;
+    error?: string | null;
+};
+
+export type BatchPreviewResponse = {
+    repo: string;
+    branch?: string | null;
+    previews: BatchPreviewItem[];
+};
+
 export type ApplyFixResponse = {
     repo: string;
     branch: string;

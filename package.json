@@ -6,6 +6,7 @@
   "main": "src/index.ts",
   "scripts": {
     "start": "elizaos start",
+    "predev": "lsof -ti:3000 | xargs kill -9 2>/dev/null; pkill -f 'elizaos.*start' 2>/dev/null; sleep 1; exit 0",
     "dev": "elizaos dev"
   },
   "dependencies": {

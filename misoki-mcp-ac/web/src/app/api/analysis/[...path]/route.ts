@@ -1,22 +1,25 @@
 /**
- * Next.js API route: /api/agent/[...path]
- * Proxies all requests to the ElizaOS agent to avoid CORS issues.
- * Unlike next.config rewrites, this properly forwards the request body and headers.
+ * Next.js API route: /api/analysis/[...path]
+ * Proxies all requests to the Python analysis service at runtime.
+ *
+ * next.config.ts rewrites are baked at build time and cannot read
+ * runtime-only env vars (like ANALYSIS_SERVICE_URL set in Docker).
+ * This route handler runs at request time, so it picks up the correct
+ * Docker-internal URL (http://analysis-service:8000) from the env.
  */
 import { type NextRequest, NextResponse } from "next/server";
 
-const AGENT_ORIGIN =
-    process.env.AGENT_URL ??
-    process.env.NEXT_PUBLIC_AGENT_URL ??
-    "http://localhost:3000";
+const ANALYSIS_ORIGIN =
+    process.env.ANALYSIS_SERVICE_URL ??
+    process.env.NEXT_PUBLIC_ANALYSIS_SERVICE_URL ??
+    "http://localhost:8000";
 
 async function proxy(req: NextRequest, params: { path: string[] }) {
     const subPath = params.path.join("/");
     const search = req.nextUrl.search ?? "";
-    const target = `${AGENT_ORIGIN}/${subPath}${search}`;
+    const target = `${ANALYSIS_ORIGIN}/${subPath}${search}`;
 
     const headers = new Headers();
-    // Forward relevant headers
     const contentType = req.headers.get("content-type");
     if (contentType) headers.set("content-type", contentType);
     const accept = req.headers.get("accept");

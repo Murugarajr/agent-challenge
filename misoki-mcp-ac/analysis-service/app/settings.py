@@ -30,7 +30,7 @@ class Settings:
     def from_env(cls) -> "Settings":
         return cls(
             github_api_base=os.getenv("MISOKI_GITHUB_API_BASE", "https://api.github.com"),
-            request_timeout_seconds=float(os.getenv("MISOKI_REQUEST_TIMEOUT_SECONDS", "20")),
+            request_timeout_seconds=float(os.getenv("MISOKI_REQUEST_TIMEOUT_SECONDS", "30")),
             max_file_bytes=int(os.getenv("MISOKI_MAX_FILE_BYTES", "200000")),
             max_repo_files=int(os.getenv("MISOKI_MAX_REPO_FILES", "40")),
             max_concurrent_file_fetches=int(os.getenv("MISOKI_MAX_CONCURRENT_FILE_FETCHES", "5")),

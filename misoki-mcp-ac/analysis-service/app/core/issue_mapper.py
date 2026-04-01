@@ -17,10 +17,11 @@ SEVERITY_MAP = {
     "info": "info",
 }
 
+# Only types that have a concrete safe-apply implementation in apply_fix_service.py.
+# Do NOT add types here unless apply_fix_service._apply_<type> is implemented.
 SAFE_FIX_TYPES = {
     "unused_import",
     "unused_variable",
-    "unreachable_code",
 }
 
 LINE_RE = re.compile(r"line[s]?\s+(?P<line>\d+)")

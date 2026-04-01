@@ -1,12 +1,19 @@
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass
 from difflib import unified_diff
 from functools import lru_cache
 import re
 
 from app.core.github_fetcher import GitHubRepoFetcher
-from app.schemas.preview import PreviewFixRequest, PreviewFixResponse
+from app.schemas.preview import (
+    BatchPreviewFixRequest,
+    BatchPreviewItem,
+    BatchPreviewResponse,
+    PreviewFixRequest,
+    PreviewFixResponse,
+)
 from app.settings import Settings, get_settings
 
 
@@ -129,6 +136,65 @@ class FixPreviewService:
             f"{match.group('indent')}_ = {match.group('expr')}{match.group('newline')}"
         )
         return "".join(lines)
+
+
+    async def batch_preview(
+        self, request: BatchPreviewFixRequest
+    ) -> BatchPreviewResponse:
+        """Preview multiple fixes concurrently and return a result per fix_id.
+
+        Failures for individual fixes are captured in BatchPreviewItem.error
+        rather than raising, so a single bad fix_id never aborts the whole
+        batch.
+        """
+        async def _one(fix_id: str) -> BatchPreviewItem:
+            try:
+                result = await self.preview_fix(
+                    PreviewFixRequest(
+                        github_url=request.github_url,
+                        fix_id=fix_id,
+                        branch=request.branch,
+                    )
+                )
+                return BatchPreviewItem(
+                    fix_id=fix_id,
+                    file=result.file,
+                    line=result.line,
+                    source_type=result.source_type,
+                    risk=result.risk,
+                    supported=result.supported,
+                    message=result.message,
+                    diff=result.diff,
+                    error=None,
+                )
+            except Exception as exc:  # noqa: BLE001
+                # Derive best-effort metadata from the fix_id so the frontend
+                # can still show the item in a disabled state.
+                parts = fix_id.split(":")
+                file_path = ":".join(parts[1:-2]) if len(parts) >= 4 else fix_id
+                source_type = parts[-1] if len(parts) >= 4 else "unknown"
+                try:
+                    line: int | None = int(parts[-2])
+                except (ValueError, IndexError):
+                    line = None
+                return BatchPreviewItem(
+                    fix_id=fix_id,
+                    file=file_path,
+                    line=line,
+                    source_type=source_type,
+                    risk="unknown",
+                    supported=False,
+                    message="Preview unavailable",
+                    diff="",
+                    error=str(exc),
+                )
+
+        previews = await asyncio.gather(*[_one(fid) for fid in request.fix_ids])
+        return BatchPreviewResponse(
+            repo=request.github_url,
+            branch=request.branch,
+            previews=list(previews),
+        )
 
 
 @lru_cache(maxsize=1)

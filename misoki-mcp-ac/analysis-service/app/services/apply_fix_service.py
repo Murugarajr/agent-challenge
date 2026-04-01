@@ -1,11 +1,12 @@
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass
 from difflib import unified_diff
 from functools import lru_cache
 import re
 
-from app.core.github_fetcher import GitHubRepoFetcher
+from app.core.github_fetcher import GitHubRepoFetcher, RepoFile
 from app.schemas.apply import (
     AppliedFilePatch,
     ApplyFixRequest,
@@ -42,16 +43,30 @@ class ApplyFixService:
         for parsed in parsed_fix_ids:
             grouped.setdefault(parsed.file_path, []).append(parsed)
 
+        file_contents = await self._fetch_files_concurrent(
+            github_url=request.github_url,
+            file_paths=list(grouped.keys()),
+            branch=request.branch,
+        )
+
         applied: list[AppliedFixResult] = []
         skipped: list[SkippedFixResult] = []
         files: list[AppliedFilePatch] = []
 
         for file_path, file_fix_ids in grouped.items():
-            repo_file = await self.fetcher.fetch_file(
-                github_url=request.github_url,
-                file_path=file_path,
-                branch=request.branch,
-            )
+            repo_file = file_contents.get(file_path)
+            if repo_file is None:
+                for parsed in file_fix_ids:
+                    skipped.append(
+                        SkippedFixResult(
+                            fix_id=parsed.fix_id,
+                            file=parsed.file_path,
+                            line=parsed.line,
+                            source_type=parsed.source_type,
+                            reason="Could not fetch file from GitHub.",
+                        )
+                    )
+                continue
 
             original = repo_file.content
             modified = original
@@ -145,6 +160,27 @@ class ApplyFixService:
             files=files,
             combined_diff=f"{combined_diff}\n" if combined_diff else "",
         )
+
+    async def _fetch_files_concurrent(
+        self,
+        github_url: str,
+        file_paths: list[str],
+        branch: str | None,
+    ) -> dict[str, RepoFile]:
+        """Fetch all needed files concurrently instead of one-by-one."""
+        async def _fetch_one(path: str) -> tuple[str, RepoFile | None]:
+            try:
+                repo_file = await self.fetcher.fetch_file(
+                    github_url=github_url,
+                    file_path=path,
+                    branch=branch,
+                )
+                return (path, repo_file)
+            except Exception:
+                return (path, None)
+
+        results = await asyncio.gather(*[_fetch_one(p) for p in file_paths])
+        return {path: rf for path, rf in results if rf is not None}
 
     def _parse_fix_id(self, fix_id: str) -> ParsedFixId:
         parts = fix_id.split(":")

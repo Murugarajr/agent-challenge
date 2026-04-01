@@ -1,9 +1,14 @@
-import type { ApplyFixResponse, PreviewFixResponse, RepoAnalyzeResponse } from "./types";
+import type { ApplyFixResponse, BatchPreviewResponse, PreviewFixResponse, RepoAnalyzeResponse } from "./types";
 
 function getBaseUrl(): string {
-    return (
-        process.env.NEXT_PUBLIC_ANALYSIS_SERVICE_URL ?? "http://localhost:8000"
-    ).replace(/\/$/, "");
+    // Always route through the Next.js rewrite proxy (/api/analysis → analysis
+    // service). This avoids the browser trying to resolve a Docker-internal
+    // hostname (http://analysis-service:8000 or http://host.docker.internal:8000)
+    // that is only reachable by the Next.js server process, not the browser.
+    //
+    // In local dev:   browser → /api/analysis/* → Next.js → http://localhost:8000/*
+    // In Docker:      browser → /api/analysis/* → Next.js → http://analysis-service:8000/*
+    return "/api/analysis";
 }
 
 async function post<T>(path: string, body: unknown): Promise<T> {
@@ -68,6 +73,18 @@ export async function previewFix(
     return post<PreviewFixResponse>("/preview/fix", {
         github_url: githubUrl,
         fix_id: fixId,
+        branch: branch ?? null,
+    });
+}
+
+export async function previewBatchFixes(
+    githubUrl: string,
+    fixIds: string[],
+    branch?: string
+): Promise<BatchPreviewResponse> {
+    return post<BatchPreviewResponse>("/preview/batch", {
+        github_url: githubUrl,
+        fix_ids: fixIds,
         branch: branch ?? null,
     });
 }

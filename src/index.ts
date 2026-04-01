@@ -75,6 +75,8 @@ function isChannelTitlePrompt(prompt: string): boolean {
   return prompt.includes("generate a short, descriptive title for this chat");
 }
 
+const LLM_TIMEOUT_MS = 60_000;
+
 async function generateChatCompletion(
   runtime: IAgentRuntime,
   params: GenerateTextParams,
@@ -97,16 +99,49 @@ async function generateChatCompletion(
     stop: params.stopSequences,
     stream: false,
     user: params.user ?? undefined,
+    // Disable chain-of-thought thinking for Qwen3 models — without this the
+    // model spends tokens on internal reasoning before writing `content`,
+    // which can cause `content` to be null when max_tokens is exhausted
+    // during the thinking phase, causing the agent to never respond.
+    chat_template_kwargs: { enable_thinking: false },
   };
 
-  const response = await fetch(`${baseUrl}/chat/completions`, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(requestBody),
-  });
+  const promptSnippet = params.prompt.slice(0, 80).replace(/\n/g, " ");
+  logger.info(
+    { model, promptLen: params.prompt.length, promptSnippet },
+    "[nosana] LLM call start"
+  );
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), LLM_TIMEOUT_MS);
+
+  let response: Response;
+  try {
+    response = await fetch(`${baseUrl}/chat/completions`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(requestBody),
+      signal: controller.signal,
+    });
+  } catch (fetchErr) {
+    clearTimeout(timer);
+    const isTimeout =
+      fetchErr instanceof Error && fetchErr.name === "AbortError";
+    logger.error(
+      { model, isTimeout, error: String(fetchErr) },
+      "[nosana] LLM fetch failed"
+    );
+    throw new Error(
+      isTimeout
+        ? `Nosana LLM timed out after ${LLM_TIMEOUT_MS / 1000}s`
+        : `Nosana fetch error: ${String(fetchErr)}`
+    );
+  } finally {
+    clearTimeout(timer);
+  }
 
   const rawBody = await response.text();
   let parsed: ChatCompletionResponse | undefined;
@@ -123,14 +158,28 @@ async function generateChatCompletion(
     throw new Error(`Nosana API error ${response.status}: ${errorText}`);
   }
 
-  const text = extractAssistantText(parsed?.choices?.[0]?.message?.content);
+  const message = parsed?.choices?.[0]?.message;
+  // Prefer `content`; fall back to `reasoning` in case the model returns
+  // chain-of-thought content in that field but no final `content`.
+  const text =
+    extractAssistantText(message?.content) ||
+    extractAssistantText((message as Record<string, unknown>)?.["reasoning"] as string | null);
   if (!text) {
     if (isChannelTitlePrompt(params.prompt)) {
       logger.warn("Nosana returned an empty channel-title response; using fallback title");
       return "New Chat";
     }
+    logger.error(
+      { model, rawBody: rawBody.slice(0, 300) },
+      "[nosana] LLM returned empty content"
+    );
     throw new Error("Nosana API returned an empty assistant response");
   }
+
+  logger.info(
+    { model, textLen: text.length, textSnippet: text.slice(0, 80).replace(/\n/g, " ") },
+    "[nosana] LLM call success"
+  );
 
   if (params.onStreamChunk) {
     await params.onStreamChunk(text);
