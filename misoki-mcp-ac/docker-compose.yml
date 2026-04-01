@@ -30,8 +30,11 @@ services:
     environment:
       - OPENAI_BASE_URL=${NOSANA_MODEL_ENDPOINT}
       - OPENAI_API_KEY=${NOSANA_API_KEY}
+      - OPENAI_SMALL_MODEL=Qwen/Qwen3.5-4B
+      - OPENAI_LARGE_MODEL=Qwen/Qwen3.5-4B
       - MISOKI_ANALYSIS_SERVICE_URL=http://analysis-service:8000
       - MISOKI_ANALYSIS_MAX_FILES=10
+      - MISOKI_ANALYSIS_TIMEOUT_MS=120000
     depends_on:
       analysis-service:
         condition: service_healthy

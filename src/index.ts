@@ -52,7 +52,7 @@ function resolveModel(runtime: IAgentRuntime, primaryKey: string): string {
   return (
     getSetting(runtime, primaryKey) ??
     getSetting(runtime, "OPENAI_LARGE_MODEL") ??
-    "Qwen3.5-27B-AWQ-4bit"
+    "Qwen/Qwen3.5-4B"
   );
 }
 

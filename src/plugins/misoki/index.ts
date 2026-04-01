@@ -35,6 +35,7 @@ const FIX_ID_RE = /\b[a-z_]+:[^:\s]+(?:\/[^:\s]+)*:\d+:[a-z_]+\b/i;
 const inFlightRepoAnalyses = new Map<string, { actionId: string; startedAt: number }>();
 const latestAnalysisByRoom = new Map<string, CachedAnalysis>();
 const latestApplyByRoom = new Map<string, CachedApplyResult>();
+const lastRepoUrlByRoom = new Map<string, string>();
 const CHAT_ANALYSIS_CATEGORIES = ["architecture", "dead_code", "performance"];
 const TOP_ISSUES_RE = /\b(top|biggest|worst|findings|issues|critical|warning|performance|architecture|dead\s*code)\b/i;
 const FILE_DETAILS_RE = /\b(file|module|details|worst file|top file|most issues|focus on)\b/i;
@@ -155,6 +156,15 @@ function cacheAnalysis(roomId: string, result: AnalyzeRepoResponse): void {
     cachedAt: Date.now(),
   });
   latestApplyByRoom.delete(roomId);
+  lastRepoUrlByRoom.set(roomId, result.repo);
+}
+
+function rememberRepoUrl(roomId: string, url: string): void {
+  lastRepoUrlByRoom.set(roomId, url);
+}
+
+function getLastRepoUrl(roomId: string): string | null {
+  return lastRepoUrlByRoom.get(roomId) ?? null;
 }
 
 function getCachedAnalysis(roomId: string): CachedAnalysis | null {
@@ -481,6 +491,7 @@ async function postChatSummary(runtime: IAgentRuntime, message: Memory, text: st
 }
 
 function runAnalyzeRepoInBackground(runtime: IAgentRuntime, message: Memory, githubUrl: string): void {
+  rememberRepoUrl(message.roomId, githubUrl);
   void (async () => {
     const actionId = randomUUID();
     const analysisKey = getRepoAnalysisKey(message, githubUrl);
@@ -561,7 +572,8 @@ const analyzeRepoAction: Action = {
   description:
     "Analyze a public GitHub Python repository using the Misoki analysis service and summarize the most important findings.",
   validate: async (_runtime: IAgentRuntime, message: Memory, _state?: State) => {
-    return extractGithubUrl(getMessageText(message)) !== null;
+    const text = getMessageText(message);
+    return extractGithubUrl(text) !== null || getLastRepoUrl(message.roomId) !== null;
   },
   handler: async (
     runtime: IAgentRuntime,
@@ -572,7 +584,7 @@ const analyzeRepoAction: Action = {
   ): Promise<ActionResult> => {
     try {
       const text = getMessageText(message);
-      const githubUrl = extractGithubUrl(text);
+      const githubUrl = extractGithubUrl(text) ?? getLastRepoUrl(message.roomId);
       if (!githubUrl) {
         throw new Error("No GitHub repository URL found in the message.");
       }
@@ -712,19 +724,33 @@ const showTopIssuesAction: Action = {
     "Show the top findings from the most recent Misoki repo analysis in this chat, optionally filtered by severity or category.",
   validate: async (_runtime: IAgentRuntime, message: Memory, _state?: State) => {
     const text = getMessageText(message);
-    return getCachedAnalysis(message.roomId) !== null && extractGithubUrl(text) === null && TOP_ISSUES_RE.test(text);
+    const hasContext = getCachedAnalysis(message.roomId) !== null || getLastRepoUrl(message.roomId) !== null;
+    return hasContext && extractGithubUrl(text) === null && TOP_ISSUES_RE.test(text);
   },
   handler: async (
-    _runtime: IAgentRuntime,
+    runtime: IAgentRuntime,
     message: Memory,
     _state?: State,
     _options?: Record<string, unknown>,
     callback?: HandlerCallback
   ): Promise<ActionResult> => {
     try {
-      const analysis = getCachedAnalysis(message.roomId);
+      let analysis = getCachedAnalysis(message.roomId);
       if (!analysis) {
-        throw new Error("No repository analysis is cached for this chat yet.");
+        const repoUrl = getLastRepoUrl(message.roomId);
+        if (repoUrl) {
+          await respond(message, callback, `Re-analyzing ${repoUrl} to get the findings...`, "SHOW_TOP_ISSUES");
+          const result = await analyzeRepo(runtime, {
+            githubUrl: repoUrl,
+            maxFiles: getBackgroundAnalysisMaxFiles(runtime),
+            includeCategories: CHAT_ANALYSIS_CATEGORIES,
+          });
+          cacheAnalysis(message.roomId, result);
+          analysis = getCachedAnalysis(message.roomId);
+        }
+      }
+      if (!analysis) {
+        throw new Error("No repository analysis is cached for this chat yet. Send a GitHub URL first.");
       }
 
       const text = getMessageText(message);
@@ -780,21 +806,34 @@ const showFileDetailsAction: Action = {
   description:
     "Show the findings for a specific file from the most recent Misoki analysis in this chat.",
   validate: async (_runtime: IAgentRuntime, message: Memory, _state?: State) => {
-    const analysis = getCachedAnalysis(message.roomId);
     const text = getMessageText(message);
-    return analysis !== null && extractGithubUrl(text) === null && FILE_DETAILS_RE.test(text);
+    const hasContext = getCachedAnalysis(message.roomId) !== null || getLastRepoUrl(message.roomId) !== null;
+    return hasContext && extractGithubUrl(text) === null && FILE_DETAILS_RE.test(text);
   },
   handler: async (
-    _runtime: IAgentRuntime,
+    runtime: IAgentRuntime,
     message: Memory,
     _state?: State,
     _options?: Record<string, unknown>,
     callback?: HandlerCallback
   ): Promise<ActionResult> => {
     try {
-      const analysis = getCachedAnalysis(message.roomId);
+      let analysis = getCachedAnalysis(message.roomId);
       if (!analysis) {
-        throw new Error("No repository analysis is cached for this chat yet.");
+        const repoUrl = getLastRepoUrl(message.roomId);
+        if (repoUrl) {
+          await respond(message, callback, `Re-analyzing ${repoUrl} to get file details...`, "SHOW_FILE_DETAILS");
+          const result = await analyzeRepo(runtime, {
+            githubUrl: repoUrl,
+            maxFiles: getBackgroundAnalysisMaxFiles(runtime),
+            includeCategories: CHAT_ANALYSIS_CATEGORIES,
+          });
+          cacheAnalysis(message.roomId, result);
+          analysis = getCachedAnalysis(message.roomId);
+        }
+      }
+      if (!analysis) {
+        throw new Error("No repository analysis is cached for this chat yet. Send a GitHub URL first.");
       }
 
       const filePath = extractReferencedFile(getMessageText(message), analysis);
@@ -834,8 +873,9 @@ const explainFindingAction: Action = {
     "Explain a finding from the most recent Misoki analysis using a fix_id, file:line reference, or title keywords.",
   validate: async (_runtime: IAgentRuntime, message: Memory, _state?: State) => {
     const text = getMessageText(message);
+    const hasContext = getCachedAnalysis(message.roomId) !== null || getLastRepoUrl(message.roomId) !== null;
     return (
-      getCachedAnalysis(message.roomId) !== null &&
+      hasContext &&
       extractGithubUrl(text) === null &&
       (extractFixId(text) !== null || EXPLAIN_FINDING_RE.test(text))
     );
@@ -888,19 +928,33 @@ const createRefactorPlanAction: Action = {
     "Create a prioritized refactor plan from the most recent Misoki repo analysis in this chat.",
   validate: async (_runtime: IAgentRuntime, message: Memory, _state?: State) => {
     const text = getMessageText(message);
-    return getCachedAnalysis(message.roomId) !== null && extractGithubUrl(text) === null && REFACTOR_PLAN_RE.test(text);
+    const hasContext = getCachedAnalysis(message.roomId) !== null || getLastRepoUrl(message.roomId) !== null;
+    return hasContext && extractGithubUrl(text) === null && REFACTOR_PLAN_RE.test(text);
   },
   handler: async (
-    _runtime: IAgentRuntime,
+    runtime: IAgentRuntime,
     message: Memory,
     _state?: State,
     _options?: Record<string, unknown>,
     callback?: HandlerCallback
   ): Promise<ActionResult> => {
     try {
-      const analysis = getCachedAnalysis(message.roomId);
+      let analysis = getCachedAnalysis(message.roomId);
       if (!analysis) {
-        throw new Error("No repository analysis is cached for this chat yet.");
+        const repoUrl = getLastRepoUrl(message.roomId);
+        if (repoUrl) {
+          await respond(message, callback, `Re-analyzing ${repoUrl} to create a refactor plan...`, "CREATE_REFACTOR_PLAN");
+          const result = await analyzeRepo(runtime, {
+            githubUrl: repoUrl,
+            maxFiles: getBackgroundAnalysisMaxFiles(runtime),
+            includeCategories: CHAT_ANALYSIS_CATEGORIES,
+          });
+          cacheAnalysis(message.roomId, result);
+          analysis = getCachedAnalysis(message.roomId);
+        }
+      }
+      if (!analysis) {
+        throw new Error("No repository analysis is cached for this chat yet. Send a GitHub URL first.");
       }
 
       const sortedIssues = sortIssues(analysis.issues);
@@ -935,7 +989,8 @@ const applySafeFixesAction: Action = {
     "Apply currently supported low-risk fixes from the most recent Misoki analysis in this chat.",
   validate: async (_runtime: IAgentRuntime, message: Memory, _state?: State) => {
     const text = getMessageText(message);
-    return getCachedAnalysis(message.roomId) !== null && extractGithubUrl(text) === null && APPLY_SAFE_FIXES_RE.test(text);
+    const hasContext = getCachedAnalysis(message.roomId) !== null || getLastRepoUrl(message.roomId) !== null;
+    return hasContext && extractGithubUrl(text) === null && APPLY_SAFE_FIXES_RE.test(text);
   },
   handler: async (
     runtime: IAgentRuntime,
@@ -1016,7 +1071,8 @@ const createPrAction: Action = {
     "Prepare a pull-request draft from the most recent Misoki analysis and any safe fixes already applied in this chat.",
   validate: async (_runtime: IAgentRuntime, message: Memory, _state?: State) => {
     const text = getMessageText(message);
-    return getCachedAnalysis(message.roomId) !== null && extractGithubUrl(text) === null && CREATE_PR_RE.test(text);
+    const hasContext = getCachedAnalysis(message.roomId) !== null || getLastRepoUrl(message.roomId) !== null;
+    return hasContext && extractGithubUrl(text) === null && CREATE_PR_RE.test(text);
   },
   handler: async (
     _runtime: IAgentRuntime,

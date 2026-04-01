@@ -12,10 +12,10 @@ export type ChatPanelRef = {
 };
 
 // ElizaOS instance constants
-const AGENT_ID  = "b88d661a-1254-0efc-a2a6-0edd6905287b";
-const SERVER_ID = "00000000-0000-0000-0000-000000000000";
-const USER_ID   = "bdd86d1e-5f9e-475a-ae1e-cfad97f3da17";
-const USER_NAME = "Misoki User";
+const AGENT_NAME = "Misoki";
+const SERVER_ID  = "00000000-0000-0000-0000-000000000000";
+const USER_ID    = "bdd86d1e-5f9e-475a-ae1e-cfad97f3da17";
+const USER_NAME  = "Misoki User";
 
 // All ElizaOS calls go through the Next.js API proxy (no CORS)
 const PROXY = "/api/agent";
@@ -34,6 +34,7 @@ export default forwardRef<ChatPanelRef, Props>(function ChatPanel({ repoUrl, ini
     const [input, setInput]         = useState("");
     const [sending, setSending]     = useState(false);
     const [channelId, setChannelId] = useState<string | null>(null);
+    const [agentId, setAgentId]     = useState<string | null>(null);
     const [status, setStatus]       = useState<"connecting" | "ready" | "error">("connecting");
     // Track whether the agent has been primed with the repo URL
     const [agentPrimed, setAgentPrimed] = useState(false);
@@ -48,19 +49,36 @@ export default forwardRef<ChatPanelRef, Props>(function ChatPanel({ repoUrl, ini
         bottomRef.current?.scrollIntoView({ behavior: "smooth" });
     }, [messages]);
 
-    // Discover the DM channel for this agent on mount
+    // Step 1: Discover the Misoki agent ID dynamically, then find its channel
     useEffect(() => {
         let dead = false;
         (async () => {
             try {
+                // Fetch all registered agents and find the one named "Misoki"
+                const agentsRes = await fetch(`${PROXY}/api/agents`);
+                const agentsJson = await agentsRes.json() as {
+                    success: boolean;
+                    data: { agents: Array<{ id: string; name: string }> };
+                };
+                if (!agentsJson.success) throw new Error("agents list failed");
+
+                const misoki = agentsJson.data.agents.find(
+                    (a) => a.name.toLowerCase() === AGENT_NAME.toLowerCase()
+                );
+                if (!misoki) throw new Error(`No agent named "${AGENT_NAME}" found`);
+
+                const resolvedAgentId = misoki.id;
+                if (!dead) setAgentId(resolvedAgentId);
+
+                // Now find the channel for this agent
                 const r = await fetch(`${PROXY}/api/messaging/message-servers/${SERVER_ID}/channels`);
                 const j = await r.json() as {
                     success: boolean;
                     data: { channels: Array<{ id: string; metadata: { forAgent?: string } }> };
                 };
                 if (!j.success) throw new Error("channel list failed");
-                const ch = j.data.channels.find(c => c.metadata?.forAgent === AGENT_ID);
-                if (!ch) throw new Error("no DM channel found");
+                const ch = j.data.channels.find(c => c.metadata?.forAgent === resolvedAgentId);
+                if (!ch) throw new Error("no DM channel found for Misoki agent");
                 if (!dead) { setChannelId(ch.id); setStatus("ready"); }
             } catch (e) {
                 console.error("ChatPanel init:", e);
@@ -106,6 +124,7 @@ export default forwardRef<ChatPanelRef, Props>(function ChatPanel({ repoUrl, ini
 
     // Poll for agent replies created AFTER the message we sent
     const pollForReply = useCallback(async (chId: string, afterTs: number): Promise<boolean> => {
+        if (!agentId) return false;
         try {
             const r = await fetch(`${PROXY}/api/messaging/channels/${chId}/messages?limit=20`);
             if (!r.ok) return false;
@@ -117,7 +136,7 @@ export default forwardRef<ChatPanelRef, Props>(function ChatPanel({ repoUrl, ini
 
             // ElizaOS uses string ISO dates in GET, but could return numbers; be robust
             const replies = j.data.messages.filter(m => {
-                if (m.authorId !== AGENT_ID) return false;
+                if (m.authorId !== agentId) return false;
                 const mTs = typeof m.createdAt === "number" ? m.createdAt : Date.parse(m.createdAt as string);
                 return mTs > afterTs;
             });
@@ -131,7 +150,7 @@ export default forwardRef<ChatPanelRef, Props>(function ChatPanel({ repoUrl, ini
             }
         } catch { /* silent */ }
         return false;
-    }, []);
+    }, [agentId]);
 
     // Polling loop — runs while `sending === true`
     useEffect(() => {
