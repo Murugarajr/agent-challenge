@@ -140,43 +140,57 @@ export default forwardRef<ChatPanelRef, Props>(function ChatPanel({ repoUrl, ini
         })();
     }, [channelId, repoUrl, agentPrimed, status]);
 
-    // Poll for agent replies created AFTER the message we sent
-    const pollForReply = useCallback(async (chId: string, afterTs: number): Promise<boolean> => {
-        if (!agentId) return false;
+    // Track which agent message IDs have already been displayed
+    const shownIdsRef = useRef<Set<string>>(new Set());
+    // Grace period: keep polling for 60s after the last new reply
+    // to catch follow-up messages from action handlers
+    const GRACE_AFTER_REPLY_MS = 60_000;
+    const lastReplyAtRef = useRef<number>(0);
+
+    // Poll for agent replies created AFTER the message we sent.
+    // Returns the count of NEW replies found this tick.
+    const pollForReplies = useCallback(async (chId: string, afterTs: number): Promise<number> => {
+        if (!agentId) return 0;
         try {
-            const r = await fetch(`${PROXY}/api/messaging/channels/${chId}/messages?limit=20`);
-            if (!r.ok) return false;
+            const r = await fetch(`${PROXY}/api/messaging/channels/${chId}/messages?limit=30`);
+            if (!r.ok) return 0;
             const j = await r.json() as {
                 success: boolean;
                 data: { messages: Array<{ id: string; authorId: string; content: string; createdAt: string | number }> };
             };
-            if (!j.success) return false;
+            if (!j.success) return 0;
 
-            // ElizaOS uses string ISO dates in GET, but could return numbers; be robust
-            const replies = j.data.messages.filter(m => {
+            const newReplies = j.data.messages.filter(m => {
                 if (m.authorId !== agentId) return false;
+                if (shownIdsRef.current.has(m.id)) return false;
                 const mTs = typeof m.createdAt === "number" ? m.createdAt : Date.parse(m.createdAt as string);
                 return mTs > afterTs;
             });
 
-            if (replies.length > 0) {
-                const latest = replies[replies.length - 1];
-                const latestTs = typeof latest.createdAt === "number" ? latest.createdAt : Date.parse(latest.createdAt as string);
-                setMessages(prev => [...prev, { role: "agent", text: latest.content, ts: latestTs }]);
-                setSending(false);
-                return true;
+            if (newReplies.length > 0) {
+                for (const reply of newReplies) {
+                    shownIdsRef.current.add(reply.id);
+                    const ts = typeof reply.createdAt === "number" ? reply.createdAt : Date.parse(reply.createdAt as string);
+                    setMessages(prev => [...prev, { role: "agent", text: reply.content, ts }]);
+                }
+                lastReplyAtRef.current = Date.now();
             }
+            return newReplies.length;
         } catch { /* silent */ }
-        return false;
+        return 0;
     }, [agentId]);
 
-    // Polling loop — runs while `sending === true`
+    // Polling loop — runs while `sending === true`.
+    // Keeps polling after finding replies (grace period) to catch
+    // follow-up messages from action handlers that run after the LLM text.
     useEffect(() => {
         if (!sending || !channelId) return;
 
-        const chId       = channelId; // capture for closure (TS narrowing)
+        const chId       = channelId;
         const startedAt  = Date.now();
         let   stopped    = false;
+        lastReplyAtRef.current = 0;
+        shownIdsRef.current = new Set();
 
         async function tick() {
             if (stopped) return;
@@ -184,27 +198,39 @@ export default forwardRef<ChatPanelRef, Props>(function ChatPanel({ repoUrl, ini
             const elapsed = Date.now() - startedAt;
             if (elapsed >= REPLY_TIMEOUT_MS) {
                 setSending(false);
-                setMessages(prev => [...prev, {
-                    role: "agent",
-                    text: `⏱ The agent is taking a while (the LLM may be busy). Please try again in a moment.`,
-                    ts: Date.now(),
-                }]);
+                if (lastReplyAtRef.current === 0) {
+                    setMessages(prev => [...prev, {
+                        role: "agent",
+                        text: `⏱ The agent is taking a while (the LLM may be busy). Please try again in a moment.`,
+                        ts: Date.now(),
+                    }]);
+                }
                 return;
             }
 
-            const got = await pollForReply(chId, sentAtRef.current);
-            if (got || stopped) return;
+            const newCount = await pollForReplies(chId, sentAtRef.current);
 
-            pollTimer.current = setTimeout(tick, POLL_INTERVAL_MS);
+            // If we've received at least one reply and the grace period has elapsed
+            // with no new replies, stop polling and mark as done
+            if (lastReplyAtRef.current > 0 && newCount === 0) {
+                const sinceLast = Date.now() - lastReplyAtRef.current;
+                if (sinceLast >= GRACE_AFTER_REPLY_MS) {
+                    setSending(false);
+                    return;
+                }
+            }
+
+            if (!stopped) {
+                pollTimer.current = setTimeout(tick, POLL_INTERVAL_MS);
+            }
         }
 
-        // Small initial delay to give ElizaOS time to receive the socket event
         pollTimer.current = setTimeout(tick, 2000);
         return () => {
             stopped = true;
             if (pollTimer.current) clearTimeout(pollTimer.current);
         };
-    }, [sending, channelId, pollForReply]);
+    }, [sending, channelId, pollForReplies]);
 
     const [pendingPrompt, setPendingPrompt] = useState(initialPrompt);
 
