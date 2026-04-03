@@ -12,8 +12,8 @@
         "image": "misoki/misoki-all:latest",
         "expose": 8080,
         "env": {
-          "OPENAI_BASE_URL": "https://YOUR-NOSANA-INFERENCE-HOST/v1",
-          "OPENAI_API_KEY": "",
+          "OPENAI_BASE_URL": "https://4ksj3tve5bazqwkuyqdhwdpcar4yutcuxphwhckrdxmu.node.k8s.prd.nos.ci/v1",
+          "OPENAI_API_KEY": "nosana",
           "OPENAI_SMALL_MODEL": "Qwen/Qwen3.5-4B",
           "OPENAI_LARGE_MODEL": "Qwen/Qwen3.5-4B",
           "GITHUB_TOKEN": "",
