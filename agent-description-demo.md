@@ -1,3 +1,11 @@
+# Misoki — Agent description
+
 Misoki is a personal AI coding assistant for Python: it does not stop at passive warnings. The product couples a custom Next.js experience with an ElizaOS agent named Misoki and a FastAPI analysis service that embeds ohm-mcp—an AST-first Python refactoring and quality engine (the same family of capabilities exposed via MCP to Copilot, Cursor, and Cline). That means Misoki is grounded in architecture work (e.g. god-object and SOLID-oriented signals, design and dependency-injection style guidance), code-quality mechanics (accurate extract-method style thinking, dead-code and import cleanup, duplication, project-aware symbol renaming), type-safety angles (coverage-oriented analysis and test-generation mindset where applicable), and performance awareness (e.g. nested-loop and hotspot-style findings)—not a single flat “lint score.”
 
 From the UI you drive outcomes: deep scans of public GitHub repos, a clear issue dashboard, suggested prompts, and Review Patches so fixes are previewed before they touch your tree. When scopes allow, Create Draft PR closes the loop from insight to a forked branch and PR—while Misoki still answers follow-ups in chat (explain the worst file, criticals, refactor plans, safe fixes). Built for the Nosana × ElizaOS challenge, the stack is containerized so you can run it locally or ship an all-in-one image for decentralized deploys. Misoki is for developers who want refactoring-grade, ohm-mcp-class analysis orchestrated by an agent they steer, not another static report to ignore.
+
+## Demo video
+
+- **Watch:** [Misoki demo — Nosana × ElizaOS build challenge](https://youtu.be/239lme2XyYM)
+
+[![Misoki demo — click to play on YouTube](https://img.youtube.com/vi/239lme2XyYM/maxresdefault.jpg)](https://youtu.be/239lme2XyYM)

@@ -4,6 +4,8 @@
 
 This directory (`misoki-mcp-ac`) is the **product stack**; the ElizaOS agent implementation lives in the parent repo at `../src/` (character, Misoki plugin, `Dockerfile.local`).
 
+The Python analysis engine reuses **[ohm-mcp](https://github.com/Murugarajr/ohm-mcp)** — an AST-first refactoring and code-quality toolkit (also published for MCP clients such as Copilot, Cursor, and Cline; see that repo for capabilities, tools, and [PyPI `ohm-mcp`](https://pypi.org/project/ohm-mcp/)). Misoki vendors a snapshot under `analysis-service/vendor/ohm-mcp-src/` for reproducible Docker / Nosana builds.
+
 ---
 
 ## Architecture
@@ -12,7 +14,7 @@ This directory (`misoki-mcp-ac`) is the **product stack**; the ElizaOS agent imp
 
 ```
                          ┌──────────────────────────────────────────┐
-                         │  Browser                                 │
+                         │             Browser                      │
                          └────────────────────┬─────────────────────┘
                                               │ same-origin to Misoki UI
                          ┌────────────────────▼─────────────────────┐
@@ -34,7 +36,7 @@ This directory (`misoki-mcp-ac`) is the **product stack**; the ElizaOS agent imp
                                      │
                                      ▼
                          ┌─────────────────────────────────────────┐
-                         │  GitHub API (token on web + analysis)    │
+                         │ GitHub API (token on web + analysis)    │
                          └─────────────────────────────────────────┘
 ```
 
@@ -44,7 +46,7 @@ This directory (`misoki-mcp-ac`) is the **product stack**; the ElizaOS agent imp
 |-------|------|------|
 | **Web** | Next.js 16 (App Router), standalone output | Landing page, results dashboard, chat panel, Review Patches modal, Create Draft PR |
 | **Agent** | ElizaOS (Node 23, Bun/pnpm), parent `Dockerfile.local` | Orchestration, memory, Misoki actions (analyze, explain, refactor plan, safe fixes, PR) |
-| **Analysis** | Python 3.11, FastAPI | AST-backed analysis, GitHub fetch, batch preview, apply-fix; **ohm-mcp** vendored in the image |
+| **Analysis** | Python 3.11, FastAPI | AST-backed analysis, GitHub fetch, batch preview, apply-fix; **[ohm-mcp](https://github.com/Murugarajr/ohm-mcp)** vendored in the image |
 
 ```
 Browser  →  Web (:8080 local via compose)
@@ -120,9 +122,11 @@ If bind errors occur, use `./scripts/free-ports.sh` or `./scripts/start.sh` (see
 
 ## ohm-mcp dependency (analysis-service)
 
+Upstream project: **[github.com/Murugarajr/ohm-mcp](https://github.com/Murugarajr/ohm-mcp)** (MCP server, IDE integration, full tool list).
+
 The analysis engine expects **ohm-mcp** on disk. For production and Nosana:
 
-- Source lives under `analysis-service/vendor/ohm-mcp-src/` (copy of `ohm_mcp` package).
+- Source lives under `analysis-service/vendor/ohm-mcp-src/` (copy of the `ohm_mcp` package from that repo).
 - `Dockerfile` sets `ENV OHM_MCP_SRC_PATH=/app/vendor/ohm-mcp-src`.
 - `docker-compose.yml` does **not** mount a host path for ohm-mcp.
 
@@ -182,6 +186,7 @@ docker compose logs -f analysis-service web agent
 ## Related docs
 
 - Challenge overview: `../README.md`
+- **ohm-mcp** (analysis engine source & MCP tooling): [github.com/Murugarajr/ohm-mcp](https://github.com/Murugarajr/ohm-mcp)
 
 ---
 
