@@ -415,7 +415,8 @@ Submit your project via the official submission page: **[superteam.fun/earn/list
 │   └── index.ts               # Custom plugin entry point (optional)
 ├── nos_job_def/
 │   └── nosana_eliza_job_definition.json  # Nosana deployment config
-├── Dockerfile                 # Container configuration
+├── Dockerfile.local           # Agent-only image (used by misoki-mcp-ac/docker-compose)
+├── Dockerfile.nosana          # Full Misoki stack for Nosana (single image, expose 8080)
 ├── .env.example               # Environment variable template
 └── package.json
 ```

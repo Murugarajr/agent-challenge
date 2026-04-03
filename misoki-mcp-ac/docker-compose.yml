@@ -6,13 +6,10 @@ services:
       dockerfile: Dockerfile
     ports:
       - "8000:8000"
-    volumes:
-      - ${PWD}/../../ohm-mcp:/app/ohm-mcp:ro
     environment:
       - MISOKI_GITHUB_API_BASE=https://api.github.com
       - MISOKI_MAX_REPO_FILES=40
       - MISOKI_REQUEST_TIMEOUT_SECONDS=30
-      - OHM_MCP_SRC_PATH=/app/ohm-mcp
       - GITHUB_TOKEN=${GITHUB_TOKEN}
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
@@ -24,7 +21,7 @@ services:
   agent:
     build:
       context: ..
-      dockerfile: Dockerfile
+      dockerfile: Dockerfile.local
     ports:
       - "3000:3000"
     environment:
@@ -47,10 +44,8 @@ services:
     ports:
       - "8080:3000"
     environment:
-      # Server-side env vars used by next.config.ts rewrites.
-      # The Next.js server (inside Docker) forwards /api/analysis/* and
-      # /api/agent/* to these Docker-internal service names.
-      # The browser never sees these URLs — it only ever calls /api/analysis/*.
+      # Runtime vars for Next.js API routes (app/api/analysis, app/api/agent).
+      # Browser calls same-origin /api/analysis/* and /api/agent/* only.
       - ANALYSIS_SERVICE_URL=http://analysis-service:8000
       - AGENT_URL=http://agent:3000
       - GITHUB_TOKEN=${GITHUB_TOKEN}

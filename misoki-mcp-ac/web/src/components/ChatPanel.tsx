@@ -88,15 +88,32 @@ export default forwardRef<ChatPanelRef, Props>(function ChatPanel({ repoUrl, ini
                 const resolvedAgentId = misoki.id;
                 if (!dead) setAgentId(resolvedAgentId);
 
-                // Now find the channel for this agent
+                // Now find (or create) the channel for this agent
                 const r = await fetch(`${PROXY}/api/messaging/message-servers/${SERVER_ID}/channels`);
                 const j = await r.json() as {
                     success: boolean;
                     data: { channels: Array<{ id: string; metadata: { forAgent?: string } }> };
                 };
                 if (!j.success) throw new Error("channel list failed");
-                const ch = j.data.channels.find(c => c.metadata?.forAgent === resolvedAgentId);
-                if (!ch) throw new Error("no DM channel found for Misoki agent");
+                let ch = j.data.channels.find(c => c.metadata?.forAgent === resolvedAgentId);
+
+                if (!ch) {
+                    const createRes = await fetch(`${PROXY}/api/messaging/channels`, {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({
+                            name: "Misoki Agent Chat",
+                            type: "DM",
+                            message_server_id: SERVER_ID,
+                            participantCentralUserIds: [resolvedAgentId],
+                            metadata: { isDm: true, forAgent: resolvedAgentId },
+                        }),
+                    });
+                    const createJson = await createRes.json() as { success: boolean; data?: { id: string } };
+                    if (!createJson.success || !createJson.data?.id) throw new Error("failed to create DM channel");
+                    ch = { id: createJson.data.id, metadata: { forAgent: resolvedAgentId } };
+                }
+
                 if (!dead) { setChannelId(ch.id); setStatus("ready"); }
             } catch (e) {
                 console.error("ChatPanel init:", e);

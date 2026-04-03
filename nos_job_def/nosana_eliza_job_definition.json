@@ -1,23 +1,29 @@
 {
+  "version": "0.1",
+  "type": "container",
+  "meta": {
+    "trigger": "dashboard"
+  },
   "ops": [
     {
-      "id": "agent",
+      "id": "misoki",
+      "type": "container/run",
       "args": {
-        "image": "yourusername/nosana-eliza-agent:latest",
-        "expose": 3000,
+        "image": "misoki/misoki-all:latest",
+        "expose": 8080,
         "env": {
-          "OPENAI_API_KEY": "nosana",
-          "OPENAI_API_URL": "TODO: replace with actual Nosana Qwen3.5 endpoint URL",
-          "MODEL_NAME": "qwen3.5-27b",
-          "SERVER_PORT": "3000",
-          "NODE_ENV": "production"
+          "OPENAI_BASE_URL": "https://YOUR-NOSANA-INFERENCE-HOST/v1",
+          "OPENAI_API_KEY": "",
+          "OPENAI_SMALL_MODEL": "Qwen/Qwen3.5-4B",
+          "OPENAI_LARGE_MODEL": "Qwen/Qwen3.5-4B",
+          "GITHUB_TOKEN": "",
+          "MISOKI_GITHUB_API_BASE": "https://api.github.com",
+          "MISOKI_MAX_REPO_FILES": "40",
+          "MISOKI_REQUEST_TIMEOUT_SECONDS": "30",
+          "MISOKI_ANALYSIS_MAX_FILES": "10",
+          "MISOKI_ANALYSIS_TIMEOUT_MS": "120000"
         }
-      },
-      "execution": {
-        "group": "run"
-      },
-      "type": "container/run"
+      }
     }
-  ],
-  "version": "0.1"
+  ]
 }

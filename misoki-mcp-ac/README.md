@@ -1,286 +1,188 @@
-Architecture Overview
-The agent uses a 3-tier architecture: an ElizaOS TypeScript agent (orchestration + UI), a Python FastAPI microservice (AST analysis engine from your ohm-mcp-refactor expertise), and a React/Next.js frontend — all containerised and deployed on Nosana's GPU network.
+# Misoki — Code quality, supercharged by AI
 
-┌──────────────────────────────────────────── ─┐
-│         React Frontend (Custom UI)           │
-│   Repo input → Chat interface → Diff viewer  │
-└────────────────────┬──────────────────────── ┘
-                     │ REST/WebSocket
-┌────────────────────▼────────────────────────┐
-│        ElizaOS Agent (TypeScript)           │
-│  Orchestration · Memory · GitHub Plugin     │
-│  Qwen3.5-27B-AWQ model (Nosana endpoint)    │
-└───────────┬─────────────────────────────────┘
-            │ Internal HTTP
-┌───────────▼─────────────────────────────────┐
-│     Python FastAPI AST Analyser             │
-│  (your ohm-mcp-refactor logic repackaged)   │
-│  AST parsing · Smell detection · Diff gen   │
-└─────────────────────────────────────────────┘
+**Misoki** is a full-stack companion for the [Nosana × ElizaOS Agent Challenge](https://nosana.com): it analyzes **public Python** repositories, surfaces actionable issues, and pairs a **custom Next.js UI** with an **ElizaOS** agent named **Misoki** so you can explore findings, apply safe patches, and open draft PRs when your GitHub token allows.
 
-Phase 1 — Python AST Microservice
-This is where your existing ohm-mcp-refactor codebase becomes the core engine.
+This directory (`misoki-mcp-ac`) is the **product stack**; the ElizaOS agent implementation lives in the parent repo at `../src/` (character, Misoki plugin, `Dockerfile.local`).
 
-File structure:
-/ast-service/
-  main.py          # FastAPI app
-  analyser.py      # AST analysis (port from ohm-mcp-refactor)
-  refactor.py      # Auto-fix generation
-  diff_gen.py      # Unified diff output
-  Dockerfile
+---
 
-main.py — FastAPI endpoints:
+## Architecture
 
-from fastapi import FastAPI
-from pydantic import BaseModel
-import httpx, base64
+**Diagram (logical — Docker Compose):** three processes; the browser hits only the web app; Next.js proxies API traffic server-side.
 
-app = FastAPI()
+```
+                         ┌──────────────────────────────────────────┐
+                         │  Browser                                 │
+                         └────────────────────┬─────────────────────┘
+                                              │ same-origin to Misoki UI
+                         ┌────────────────────▼─────────────────────┐
+                         │ Next.js — UI + /api/analysis + /api/agent│
+                         │  Compose: published :8080 → app :3000    │
+                         └───────────┬─────────────────┬────────────┘
+                                     │                 │
+                         server proxy to backends (Docker service names or localhost)
+                                     │                 │
+                         ┌───────────▼─────────┐ ┌─────▼──────────────┐
+                         │ FastAPI Analysis    │ │ ElizaOS — Misoki   │
+                         │ :8000               │ │ :3000              │
+                         │ ohm-mcp AST         │ │ Misoki plugin      │
+                         └───────────┬─────────┘ └─────────┬──────────┘
+                                     │                     │
+                                     │ MISOKI_ANALYSIS_    │
+                                     │ SERVICE_URL         │
+                                     │◄────────────────────┘
+                                     │
+                                     ▼
+                         ┌─────────────────────────────────────────┐
+                         │  GitHub API (token on web + analysis)    │
+                         └─────────────────────────────────────────┘
+```
 
-class RepoRequest(BaseModel):
-    github_url: str
-    branch: str = "main"
-    max_files: int = 20
+**Nosana all-in-one (`Dockerfile.nosana`):** same three tiers run inside one container; services talk on `localhost:8000`, `:3000`, `:8080`; only **8080** is exposed publicly.
 
-@app.post("/analyse")
-async def analyse_repo(req: RepoRequest):
-    files = await fetch_repo_files(req.github_url, req.branch, req.max_files)
-    results = []
-    for file in files:
-        if file["name"].endswith(".py"):
-            smells = analyser.detect_smells(file["content"])
-            if smells:
-                results.append({
-                    "file": file["path"],
-                    "smells": smells,
-                    "diff": refactor.generate_diff(file["content"], smells)
-                })
-    return {"repo": req.github_url, "issues": results, "total": len(results)}
+| Layer | Tech | Role |
+|-------|------|------|
+| **Web** | Next.js 16 (App Router), standalone output | Landing page, results dashboard, chat panel, Review Patches modal, Create Draft PR |
+| **Agent** | ElizaOS (Node 23, Bun/pnpm), parent `Dockerfile.local` | Orchestration, memory, Misoki actions (analyze, explain, refactor plan, safe fixes, PR) |
+| **Analysis** | Python 3.11, FastAPI | AST-backed analysis, GitHub fetch, batch preview, apply-fix; **ohm-mcp** vendored in the image |
 
-@app.post("/apply-fix")
-async def apply_fix(file_path: str, content: str, smell_type: str):
-    fixed = refactor.apply(content, smell_type)
-    return {"original": content, "fixed": fixed, 
-            "diff": diff_gen.unified_diff(content, fixed)}
+```
+Browser  →  Web (:8080 local via compose)
+              ├─ /api/analysis/*  →  FastAPI (:8000)
+              └─ /api/agent/*     →  ElizaOS (:3000)
+```
 
+The browser only talks to the **web** origin. Next.js **API route proxies** (`web/src/app/api/analysis/[...path]/`, `web/src/app/api/agent/[...path]/`) forward to `ANALYSIS_SERVICE_URL` and `AGENT_URL` at **runtime** (required in Docker so build-time rewrites are not used).
 
-analyser.py — Code smell detection (AST-powered):
+---
 
-import ast
-from dataclasses import dataclass
+## Repository layout (this tree)
 
-@dataclass
-class CodeSmell:
-    type: str
-    line: int
-    message: str
-    severity: str  # "critical" | "warning" | "info"
+```
+misoki-mcp-ac/
+├── analysis-service/     # FastAPI app, Dockerfile, vendor/ohm-mcp-src (baked for deploy)
+├── web/                  # Next.js frontend + API proxies
+├── scripts/
+│   ├── free-ports.sh     # Optional: free 8000/3000/8080 before compose (see start.sh)
+│   ├── start.sh          # free-ports + docker compose up --build
+│   └── start-nosana.sh   # Used by ../Dockerfile.nosana (all-in-one image)
+├── docker-compose.yml    # 3 services: analysis-service, agent, web
+└── DEPLOYMENT.md         # Extended deploy / health / troubleshooting
+```
 
-def detect_smells(source: str) -> list[CodeSmell]:
-    tree = ast.parse(source)
-    smells = []
-    
-    for node in ast.walk(tree):
-        # Long methods
-        if isinstance(node, ast.FunctionDef):
-            lines = node.end_lineno - node.lineno
-            if lines > 30:
-                smells.append(CodeSmell("long_method", node.lineno,
-                    f"Function '{node.name}' is {lines} lines (>30)", "warning"))
-        
-        # Too many parameters
-        if isinstance(node, ast.FunctionDef):
-            if len(node.args.args) > 5:
-                smells.append(CodeSmell("too_many_params", node.lineno,
-                    f"'{node.name}' has {len(node.args.args)} params (>5)", "warning"))
-        
-        # Deep nesting
-        if isinstance(node, (ast.If, ast.For, ast.While)):
-            depth = get_nesting_depth(node)
-            if depth > 3:
-                smells.append(CodeSmell("deep_nesting", node.lineno,
-                    f"Nesting depth {depth} (>3)", "critical"))
-        
-        # God class detection
-        if isinstance(node, ast.ClassDef):
-            methods = [n for n in ast.walk(node) if isinstance(n, ast.FunctionDef)]
-            if len(methods) > 15:
-                smells.append(CodeSmell("god_class", node.lineno,
-                    f"Class '{node.name}' has {len(methods)} methods (>15)", "critical"))
-    
-    return smells
+Parent repo (challenge root):
 
-Phase 2 — ElizaOS Agent (TypeScript)
-Fork the challenge starter repo, then build your agent character and custom plugin.
+- `Dockerfile.local` — ElizaOS **agent-only** image for Docker Compose (build context: repo root).
+- `Dockerfile.nosana` — **single container**: analysis + agent + web on `localhost`, **expose 8080** for Nosana.
+- `nos_job_def/nosana_eliza_job_definition.json` — recommended **dashboard** job (single op, `misoki/misoki-all:latest`).
 
-src/character.ts — Agent personality:
-import { Character, ModelProviderName } from "@elizaos/core";
+---
 
-export const refactorAgent: Character = {
-  name: "RefactorBot",
-  username: "refactorbot",
-  modelProvider: ModelProviderName.OPENAI,  // points to Nosana endpoint
-  bio: [
-    "I'm an expert Python code refactoring assistant.",
-    "I analyse GitHub repositories, detect code smells using AST analysis,",
-    "and generate actionable diffs to improve code quality.",
-  ],
-  system: `You are RefactorBot. When given a GitHub URL, call the analyse_repo 
-  action to run AST analysis. Present findings clearly: list each file, 
-  its issues (severity, line number, description), and show diffs. 
-  Always ask if the user wants to apply fixes via a PR.`,
-  plugins: ["@elizaos/plugin-github", "./plugins/refactor-plugin"],
-  settings: {
-    secrets: {},
-    voice: { model: "en_US-male-medium" }
-  }
-};
+## Features (implemented)
 
-src/plugins/refactor-plugin/index.ts — Custom actions:
+- **Analyze** public GitHub repos from the UI; severity/category breakdown and issue list.
+- **Review Patches** — preview and generate patches for safe fix types.
+- **Create Draft PR** — Next.js route uses `GITHUB_TOKEN` when scopes allow (`public_repo` / `repo` as appropriate).
+- **Ask Misoki** — chat sidebar; suggested prompts; **Apply safe fixes** opens Review Patches; Misoki agent id discovered at runtime.
+- **Analysis service** — concurrent GitHub fetches, retries, configurable timeouts; **ohm-mcp** source copied into `analysis-service/vendor/ohm-mcp-src` at build time (no host volume mount needed for cloud deploy).
 
-import { Action, IAgentRuntime, Memory, State } from "@elizaos/core";
-import axios from "axios";
+---
 
-const AST_SERVICE_URL = process.env.AST_SERVICE_URL || "http://localhost:8000";
+## Local development
 
-export const analyseRepoAction: Action = {
-  name: "ANALYSE_REPO",
-  similes: ["REFACTOR", "CHECK_CODE", "ANALYSE_CODE", "REVIEW_REPO"],
-  description: "Analyse a GitHub repository for code smells using AST analysis",
-  
-  validate: async (runtime: IAgentRuntime, message: Memory) => {
-    const githubUrlRegex = /github\.com\/[\w-]+\/[\w-]+/;
-    return githubUrlRegex.test(message.content.text);
-  },
-  
-  handler: async (runtime: IAgentRuntime, message: Memory, state: State) => {
-    const urlMatch = message.content.text.match(
-      /https?:\/\/github\.com\/[\w-]+\/[\w-]+/
-    );
-    if (!urlMatch) return false;
-    
-    const githubUrl = urlMatch[0];
-    
-    // Call Python AST microservice
-    const response = await axios.post(`${AST_SERVICE_URL}/analyse`, {
-      github_url: githubUrl,
-      max_files: 20
-    });
-    
-    const { issues, total } = response.data;
-    
-    // Store in ElizaOS memory for follow-up
-    await runtime.messageManager.createMemory({
-      id: `analysis-${Date.now()}`,
-      content: { text: JSON.stringify(response.data), action: "ANALYSIS_RESULT" },
-      roomId: message.roomId,
-      userId: message.userId,
-      agentId: runtime.agentId
-    });
-    
-    // Format response for LLM to narrate
-    return `Found ${total} issues across ${issues.length} files in ${githubUrl}. 
-    Critical issues: ${issues.filter(i => 
-      i.smells.some(s => s.severity === "critical")).length} files.
-    Issues data: ${JSON.stringify(issues.slice(0, 5))}`;
-  }
-};
+### Prerequisites
 
-export const createPRAction: Action = {
-  name: "CREATE_PR",
-  similes: ["APPLY_FIX", "OPEN_PR", "SUBMIT_FIX"],
-  description: "Apply refactoring fixes and create a GitHub Pull Request",
-  
-  handler: async (runtime: IAgentRuntime, message: Memory, state: State) => {
-    // Uses @elizaos/plugin-github to create PRs with fixes
-    const octokit = runtime.getService("github");
-    // ... create branch, apply diffs, open PR
-  }
-};
+- Docker / Docker Compose  
+- From repo root: `.env` or `misoki-mcp-ac/.env` with `NOSANA_MODEL_ENDPOINT`, `NOSANA_API_KEY`, optional `GITHUB_TOKEN`
 
-Phase 3 — React Frontend (Custom UI)
-The challenge requires a custom UI. Build a focused diff-viewer interface.
+### Run the stack
 
-Key components:
+```bash
+cd misoki-mcp-ac
+cp .env.example .env   # if you use an example; then edit
+./scripts/start.sh     # frees common ports + docker compose up --build
+# or: docker compose up --build
+```
 
-/frontend/
-  src/
-    components/
-      RepoInput.tsx       # GitHub URL input + analyse button
-      SmellDashboard.tsx  # Summary cards (total smells by severity)
-      FileTree.tsx        # List of affected files
-      DiffViewer.tsx      # Monaco editor with diff highlighting
-      ChatPanel.tsx       # ElizaOS agent chat interface
-    App.tsx
+| Service | URL (host) |
+|---------|------------|
+| Web | http://localhost:8080 |
+| Agent (Eliza built-in UI) | http://localhost:3000 |
+| Analysis API (direct) | http://localhost:8000 — `/health`, `/docs`, `/analyze/repo`, etc. |
 
-DiffViewer.tsx — Monaco diff editor:
+Compose wiring matches `docker-compose.yml`: agent waits for a healthy analysis-service; web depends on both and sets `ANALYSIS_SERVICE_URL` / `AGENT_URL` for server-side proxying.
 
-import { DiffEditor } from "@monaco-editor/react";
+### Ports in use
 
-export function DiffViewer({ original, modified, filename }) {
-  return (
-    <div className="diff-viewer">
-      <h3>{filename}</h3>
-      <DiffEditor
-        height="400px"
-        language="python"
-        original={original}
-        modified={modified}
-        theme="vs-dark"
-        options={{ readOnly: true, renderSideBySide: true }}
-      />
-      <button onClick={() => applyFix(filename)}>
-        ✅ Apply Fix & Create PR
-      </button>
-    </div>
-  );
-}
+If bind errors occur, use `./scripts/free-ports.sh` or `./scripts/start.sh` (see `scripts/free-ports.sh` — it targets listeners and avoids killing Docker’s own processes when possible).
 
-Phase 4 — Docker & Nosana Deployment
-All three services must be containerised and deployed to Nosana.
+---
 
-docker-compose.yml:
+## ohm-mcp dependency (analysis-service)
 
-version: "3.9"
-services:
-  ast-service:
-    build: ./ast-service
-    ports: ["8000:8000"]
-    environment:
-      - GITHUB_TOKEN=${GITHUB_TOKEN}
+The analysis engine expects **ohm-mcp** on disk. For production and Nosana:
 
-  eliza-agent:
-    build: ./agent
-    ports: ["3000:3000"]
-    environment:
-      - AST_SERVICE_URL=http://ast-service:8000
-      - OPENAI_BASE_URL=${NOSANA_MODEL_ENDPOINT}
-      - OPENAI_API_KEY=${NOSANA_API_KEY}
-    depends_on: [ast-service]
+- Source lives under `analysis-service/vendor/ohm-mcp-src/` (copy of `ohm_mcp` package).
+- `Dockerfile` sets `ENV OHM_MCP_SRC_PATH=/app/vendor/ohm-mcp-src`.
+- `docker-compose.yml` does **not** mount a host path for ohm-mcp.
 
-  frontend:
-    build: ./frontend
-    ports: ["8080:80"]
-    environment:
-      - VITE_AGENT_URL=http://eliza-agent:3000
+Local dev without rebuilding: you can still align with `OHM_MCP_SRC_PATH` if you customize `.env`, but the default image is self-contained.
 
- nosana.json — Nosana job definition:     
+---
 
- {
-  "version": "1",
-  "type": "container",
-  "meta": { "trigger": "api" },
-  "ops": [{
-    "type": "container/run",
-    "id": "refactor-agent",
-    "args": {
-      "image": "your-dockerhub/refactor-agent:latest",
-      "gpu": true,
-      "expose": 8080,
-      "env": {
-        "NOSANA_MODEL_ENDPOINT": "{{ secrets.NOSANA_MODEL_ENDPOINT }}",
-        "GITHUB_TOKEN": "{{ secrets.GITHUB_TOKEN }}"
-      }
-    }
-  }]
-}
+## Nosana deployment
+
+Nosana multi-container jobs can hit **DNS / ordering** quirks between operations. The supported path for a stable dashboard deploy is the **all-in-one** image:
+
+1. From **repository root** (`agent-challenge/`), build and push:
+
+   ```bash
+   docker build -f Dockerfile.nosana -t YOUR_USER/misoki-all:latest .
+   docker push YOUR_USER/misoki-all:latest
+   ```
+
+2. Edit `nos_job_def/nosana_eliza_job_definition.json`: set `image` to your image, and supply env (model URL, API key, GitHub token, Misoki limits). **Do not commit real tokens.**
+
+3. Paste the JSON into the [Nosana Dashboard](https://deploy.nosana.com/) deploy flow. The job exposes **8080** — use that URL as your public Misoki UI.
+
+Secrets: there is no separate “dashboard secrets” UI for arbitrary env injection like `{{ secrets.X }}` in JSON; use [confidential jobs via CLI](https://learn.nosana.com/deployments/jobs/job-definition/confidential.html) if you must avoid publishing tokens in IPFS-hosted definitions.
+
+More detail: **`DEPLOYMENT.md`** in this folder.
+
+---
+
+## Environment variables (summary)
+
+| Variable | Where | Purpose |
+|----------|--------|---------|
+| `NOSANA_MODEL_ENDPOINT` / `NOSANA_API_KEY` | Agent (compose) | OpenAI-compatible LLM (Nosana Qwen endpoint) |
+| `OPENAI_SMALL_MODEL` / `OPENAI_LARGE_MODEL` | Agent | Model ids for the endpoint |
+| `MISOKI_ANALYSIS_SERVICE_URL` | Agent | FastAPI base URL |
+| `MISOKI_ANALYSIS_MAX_FILES`, `MISOKI_ANALYSIS_TIMEOUT_MS` | Agent | Background analysis limits |
+| `ANALYSIS_SERVICE_URL`, `AGENT_URL` | Web (server) | Proxy targets for `/api/analysis/*`, `/api/agent/*` |
+| `GITHUB_TOKEN` | Web, analysis | Private repo access; PR route needs appropriate scopes |
+| `MISOKI_*` | Analysis | GitHub API base, file limits, HTTP timeouts |
+
+---
+
+## Health & debugging
+
+| Check | URL |
+|-------|-----|
+| Analysis | `GET /health` on port 8000 |
+| Web | `GET /api/health` (inside Next) |
+| Agent | Eliza `/health` / logs via `docker compose logs agent` |
+
+```bash
+docker compose logs -f analysis-service web agent
+```
+
+---
+
+## Related docs
+
+- Challenge overview: `../README.md`
+
+---
+
+**Misoki** — analyze, chat, patch, and ship on your own stack or on **Nosana** decentralized compute, with ElizaOS and a real Python analysis engine under the hood.

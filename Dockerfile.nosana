@@ -1,0 +1,72 @@
+# syntax=docker/dockerfile:1
+#
+# Multi-service container for Nosana deployment.
+# Bundles: analysis-service (Python/FastAPI :8000),
+#          agent (ElizaOS/Node :3000),
+#          web (Next.js :8080)
+# All communicate via localhost; only port 8080 is exposed.
+
+# ── Stage 1: Build the Next.js web frontend ──────────────────────────
+FROM node:20-alpine AS web-builder
+WORKDIR /build
+COPY misoki-mcp-ac/web/package.json misoki-mcp-ac/web/package-lock.json ./
+RUN npm ci
+COPY misoki-mcp-ac/web/ .
+RUN npm run build
+
+# ── Stage 2: Install agent (ElizaOS) dependencies ───────────────────
+FROM node:23-slim AS agent-builder
+RUN apt-get update && apt-get install -y python3 make g++ git curl unzip \
+  && rm -rf /var/lib/apt/lists/*
+RUN curl -fsSL https://bun.sh/install | bash
+ENV BUN_INSTALL="/root/.bun" PATH="/root/.bun/bin:$PATH"
+RUN npm install -g pnpm
+WORKDIR /build
+COPY package.json ./
+RUN pnpm install
+COPY src ./src
+
+# ── Stage 3: Final runtime image ─────────────────────────────────────
+FROM node:23-slim
+
+RUN apt-get update && apt-get install -y \
+  python3 python3-pip python3-venv \
+  curl unzip \
+  && rm -rf /var/lib/apt/lists/*
+
+RUN curl -fsSL https://bun.sh/install | bash
+ENV BUN_INSTALL="/root/.bun" PATH="/root/.bun/bin:$PATH"
+RUN npm install -g pnpm
+
+ENV ELIZAOS_TELEMETRY_DISABLED=true
+ENV DO_NOT_TRACK=1
+
+# ── Analysis service (Python) ────────────────────────────────────────
+WORKDIR /srv/analysis
+COPY misoki-mcp-ac/analysis-service/pyproject.toml misoki-mcp-ac/analysis-service/README.md ./
+COPY misoki-mcp-ac/analysis-service/app ./app
+RUN python3 -m venv /srv/analysis/venv \
+  && /srv/analysis/venv/bin/pip install --no-cache-dir .
+COPY misoki-mcp-ac/analysis-service/vendor/ohm-mcp-src /srv/analysis/vendor/ohm-mcp-src
+
+# ── Agent (ElizaOS) ─────────────────────────────────────────────────
+WORKDIR /srv/agent
+COPY --from=agent-builder /build/node_modules ./node_modules
+COPY --from=agent-builder /build/package.json ./
+COPY --from=agent-builder /build/src ./src
+RUN mkdir -p /srv/agent/.eliza /srv/agent/data
+RUN touch /srv/agent/.env
+
+# ── Web (Next.js standalone) ────────────────────────────────────────
+WORKDIR /srv/web
+COPY --from=web-builder /build/public ./public
+COPY --from=web-builder /build/.next/standalone ./
+COPY --from=web-builder /build/.next/static ./.next/static
+
+# ── Start script ────────────────────────────────────────────────────
+COPY misoki-mcp-ac/scripts/start-nosana.sh /start.sh
+RUN chmod +x /start.sh
+
+EXPOSE 8080
+
+ENTRYPOINT ["/start.sh"]

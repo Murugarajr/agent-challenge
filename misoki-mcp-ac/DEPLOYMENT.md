@@ -19,43 +19,33 @@ Services:
 - Agent: http://localhost:3000
 - Analysis: http://localhost:8000
 
-## Nosana Deployment
+## Nosana deployment
 
-### Prerequisites
-- Docker images pushed to registry
-- Nosana CLI installed
-- GPU node access for ElizaOS agent
+Use the **single all-in-one image** and the job definition at the repo root (multi-container jobs on Nosana were unreliable for this stack).
 
-### Build & Push Images
+### Build & push (from challenge repo root)
 
 ```bash
-# Build all images
-docker build -t misoki/analysis-service:latest ./analysis-service
-docker build -t misoki/eliza-agent:latest ..
-docker build -t misoki/web:latest ./web
-
-# Push to registry
-docker push misoki/analysis-service:latest
-docker push misoki/eliza-agent:latest
-docker push misoki/web:latest
+cd ..   # agent-challenge root
+docker build -f Dockerfile.nosana -t YOUR_DOCKERHUB/misoki-all:latest .
+docker push YOUR_DOCKERHUB/misoki-all:latest
 ```
 
-### Deploy to Nosana
+### Job definition
 
-```bash
-# Using the job definition
-nosana job run -f nosana-job.json
+- **Source of truth:** `../nos_job_def/nosana_eliza_job_definition.json`
+- Set `image` to your pushed `misoki-all` tag and configure `env` (model URL, API key, `GITHUB_TOKEN`, Misoki limits). Do not commit real secrets.
 
-# Or deploy individual services
-nosana container deploy misoki/analysis-service:latest --port 8000
-```
+### Dashboard vs CLI
 
-### Required Secrets
+- **Dashboard:** paste the JSON and deploy (challenge flow).
+- **CLI:** `nosana job post --file ../nos_job_def/nosana_eliza_job_definition.json ...` (add `--confidential` if the file contains secrets).
 
-Set these in your Nosana project:
-- `NOSANA_API_KEY` - Your Nosana API key
-- `NOSANA_MODEL_ENDPOINT` - Qwen3.5-27B-AWQ endpoint URL
-- `GITHUB_TOKEN` - Optional, for private repos
+### Env (typical)
+
+- `OPENAI_BASE_URL`, `OPENAI_API_KEY`, model names  
+- `GITHUB_TOKEN` (for analysis + draft PR route)  
+- `MISOKI_*` analysis limits / timeouts as in the JSON example
 
 ## Health Checks
 
