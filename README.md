@@ -1,459 +1,220 @@
-# Nosana x ElizaOS Agent Challenge
+# Misoki — Scan. Explain. Patch. PR. · ElizaOS on Nosana
 
-![ElizaOS](./assets/NosanaXEliza.jpg)
+**Misoki** is a full-stack companion for the [Nosana × ElizaOS Agent Challenge](https://nosana.com/blog/builders-challenge-elizaos/): it analyzes **public Python** repositories, surfaces actionable issues, and pairs a **custom Next.js UI** with an **ElizaOS** agent named **Misoki** so you can explore findings, apply safe patches, and open draft PRs when your GitHub token allows.
 
-Build your own **personal AI agent** using [ElizaOS](https://elizaos.com) and deploy it on the [Nosana](https://nosana.com) decentralized compute network. Win a share of **$3,000 USDC** in prizes.
-
----
-
-## The Challenge
-
-Inspired by [OpenClaw](https://openclaw.ai/) — the self-hosted personal AI movement — this challenge is about giving AI back to the individual. Build an agent that runs on **your own infrastructure**, handles **your own tasks**, and keeps **your own data**.
-
-> **Theme: Personal AI Agents** — Build an AI agent that acts as a personal assistant, automate your life, or solve a real problem for yourself or your community. The use case is entirely up to you.
-
-**Framework:** [ElizaOS](https://elizaos.com) (latest v2)
-**Compute:** [Nosana](https://nosana.com) decentralized GPU network
-**Model:** Qwen3.5-27B (hosted endpoint provided by Nosana)
+The Python analysis engine reuses **[ohm-mcp](https://github.com/Murugarajr/ohm-mcp)** — an AST-first refactoring and code-quality toolkit (also published for MCP clients such as Copilot, Cursor, and Cline; see that repo for capabilities, tools, and [PyPI `ohm-mcp`](https://pypi.org/project/ohm-mcp/)). Misoki vendors a snapshot under `analysis-service/vendor/ohm-mcp-src/` for reproducible Docker / Nosana builds.
 
 ---
 
-## Prizes — $3,000 USDC Total
+## Agent description
 
-| Place | Prize |
-|-------|-------|
-| 🥇 1st | $1,000 USDC |
-| 🥈 2nd | $750 USDC |
-| 🥉 3rd | $450 USDC |
-| 4th | $200 USDC |
-| 5th–10th | $100 USDC each |
+Misoki is a **personal AI coding assistant for Python** — not a wall of passive warnings. The stack brings together:
 
----
+- **Next.js** — product UI  
+- **ElizaOS** — the Misoki agent  
+- **FastAPI** — analysis service built on **[ohm-mcp](https://github.com/Murugarajr/ohm-mcp)** (AST-first refactoring and quality; same capability family as the MCP tools for Copilot, Cursor, and Cline)  
 
-## Schedule
+That depth is **more than a single “lint score.”** Misoki leans on signals such as:
 
-Follow Nosana's Luma for more information: [Nosana Luma](https://luma.com/calendar/cal-RF19mq3EtF4juLc)
+| Area | Examples |
+|------|----------|
+| **Architecture** | God-object and SOLID-oriented hints, design and dependency-injection style guidance |
+| **Code quality** | Extract-method-style reasoning, dead-code and import cleanup, duplication, project-aware symbol renaming |
+| **Types & tests** | Coverage-oriented analysis and test-generation thinking where it fits |
+| **Performance** | Nested-loop and hotspot-style findings |
 
-![](./assets/image.png)
+**In the UI:** scan public GitHub repos, browse the issue dashboard, use suggested prompts, and **Review Patches** before anything lands in your tree. With the right GitHub scopes, **Create Draft PR** turns that work into a forked branch and pull request. Chat still covers follow-ups (worst file, criticals, refactor plans, safe fixes).
 
----
+The project is built for the **Nosana × ElizaOS** challenge and is **fully containerized** — run locally or ship an all-in-one image for decentralized deploys. Misoki is aimed at developers who want **refactoring-grade, ohm-mcp-class** analysis under an agent they steer, instead of another static report.
 
-## What to Build
+### Demo video
 
-There are no strict requirements on use case — build whatever is most useful to you. Some ideas to get started:
+- **Watch:** [Misoki demo — Nosana × ElizaOS build challenge](https://youtu.be/239lme2XyYM)
 
-- 🗂️ **Personal assistant** — calendar, tasks, email drafting, reminders
-- 🔍 **Research agent** — web search, summarization, knowledge synthesis
-- 📱 **Social media manager** — Twitter/X, Telegram, Discord automation
-- 💰 **DeFi/crypto agent** — portfolio monitoring, on-chain alerts, trading insights
-- 🏠 **Home automation** — smart home control, IoT integration
-- 🛠️ **DevOps helper** — monitor services, automate deployments
-- 🎨 **Content creator** — blog posts, social copy, creative writing
-
-**Tip:** ElizaOS has a rich [plugin ecosystem](https://elizaos.github.io/eliza/docs/core/plugins). Explore existing plugins and templates before building from scratch — you might find 80% of what you need already exists.
+[![Misoki demo — click to play on YouTube](https://img.youtube.com/vi/239lme2XyYM/maxresdefault.jpg)](https://youtu.be/239lme2XyYM)
 
 ---
 
-## Getting Started
+## Architecture
+
+**Diagram (logical — Docker Compose):** three processes; the browser hits only the web app; Next.js proxies API traffic server-side.
+
+```
+                         ┌──────────────────────────────────────────┐
+                         │             Browser                      │
+                         └────────────────────┬─────────────────────┘
+                                              │ same-origin to Misoki UI
+                         ┌────────────────────▼─────────────────────┐
+                         │ Next.js — UI + /api/analysis + /api/agent│
+                         │  Compose: published :8080 → app :3000    │
+                         └───────────┬─────────────────┬────────────┘
+                                     │                 │
+                         server proxy to backends (Docker service names or localhost)
+                                     │                 │
+                         ┌───────────▼─────────┐ ┌─────▼──────────────┐
+                         │ FastAPI Analysis    │ │ ElizaOS — Misoki   │
+                         │ :8000               │ │ :3000              │
+                         │ ohm-mcp AST         │ │ Misoki plugin      │
+                         └───────────┬─────────┘ └─────────┬──────────┘
+                                     │                     │
+                                     │ MISOKI_ANALYSIS_    │
+                                     │ SERVICE_URL         │
+                                     │◄────────────────────┘
+                                     │
+                                     ▼
+                         ┌─────────────────────────────────────────┐
+                         │ GitHub API (token on web + analysis)    │
+                         └─────────────────────────────────────────┘
+```
+
+**Nosana all-in-one (`Dockerfile.nosana`):** same three tiers run inside one container; services talk on `localhost:8000`, `:3000`, `:8080`; only **8080** is exposed publicly.
+
+| Layer | Tech | Role |
+|-------|------|------|
+| **Web** | Next.js 16 (App Router), standalone output | Landing page, results dashboard, chat panel, Review Patches modal, Create Draft PR |
+| **Agent** | ElizaOS (Node 23, Bun/pnpm), parent `Dockerfile.local` | Orchestration, memory, Misoki actions (analyze, explain, refactor plan, safe fixes, PR) |
+| **Analysis** | Python 3.11, FastAPI | AST-backed analysis, GitHub fetch, batch preview, apply-fix; **[ohm-mcp](https://github.com/Murugarajr/ohm-mcp)** vendored in the image |
+
+```
+Browser  →  Web (:8080 local via compose)
+              ├─ /api/analysis/*  →  FastAPI (:8000)
+              └─ /api/agent/*     →  ElizaOS (:3000)
+```
+
+The browser only talks to the **web** origin. Next.js **API route proxies** (`web/src/app/api/analysis/[...path]/`, `web/src/app/api/agent/[...path]/`) forward to `ANALYSIS_SERVICE_URL` and `AGENT_URL` at **runtime** (required in Docker so build-time rewrites are not used).
+
+---
+
+## Repository layout (this tree)
+
+```
+misoki-mcp-ac/
+├── analysis-service/     # FastAPI app, Dockerfile, vendor/ohm-mcp-src (baked for deploy)
+├── web/                  # Next.js frontend + API proxies
+├── scripts/
+│   ├── free-ports.sh     # Optional: free 8000/3000/8080 before compose (see start.sh)
+│   ├── start.sh          # free-ports + docker compose up --build
+│   └── start-nosana.sh   # Used by ../Dockerfile.nosana (all-in-one image)
+├── docker-compose.yml    # 3 services: analysis-service, agent, web
+└── DEPLOYMENT.md         # Extended deploy / health / troubleshooting
+```
+
+Parent repo (challenge root):
+
+- `Dockerfile.local` — ElizaOS **agent-only** image for Docker Compose (build context: repo root).
+- `Dockerfile.nosana` — **single container**: analysis + agent + web on `localhost`, **expose 8080** for Nosana.
+- `nos_job_def/nosana_eliza_job_definition.json` — recommended **dashboard** job (single op, `misoki/misoki-all:latest`).
+
+---
+
+## Features (implemented)
+
+- **Analyze** public GitHub repos from the UI; severity/category breakdown and issue list.
+- **Review Patches** — preview and generate patches for safe fix types.
+- **Create Draft PR** — Next.js route uses `GITHUB_TOKEN` when scopes allow (`public_repo` / `repo` as appropriate).
+- **Ask Misoki** — chat sidebar; suggested prompts; **Apply safe fixes** opens Review Patches; Misoki agent id discovered at runtime.
+- **Analysis service** — concurrent GitHub fetches, retries, configurable timeouts; **ohm-mcp** source copied into `analysis-service/vendor/ohm-mcp-src` at build time (no host volume mount needed for cloud deploy).
+
+---
+
+## Local development
 
 ### Prerequisites
 
-- Node.js 23+
-- pnpm (`npm install -g pnpm`)
-- Docker (for deployment)
-- Git
+- Docker / Docker Compose  
+- From repo root: `.env` or `misoki-mcp-ac/.env` with `NOSANA_MODEL_ENDPOINT`, `NOSANA_API_KEY`, optional `GITHUB_TOKEN`
 
-### Quick Start
+### Run the stack
 
 ```bash
-# Fork this repo, then clone your fork
-git clone https://github.com/YOUR-USERNAME/agent-challenge
-cd agent-challenge
-
-# Copy and configure environment variables
-cp .env.example .env
-# Edit .env with your Nosana endpoint details
-
-# Install dependencies
-bun i -g @elizaos/cli
-
-# Start your agent in development mode
-elizaos dev
+cd misoki-mcp-ac
+cp .env.example .env   # if you use an example; then edit
+./scripts/start.sh     # frees common ports + docker compose up --build
+# or: docker compose up --build
 ```
 
-Open [http://localhost:3000](http://localhost:3000) to see the ElizaOS built-in client.
+| Service | URL (host) |
+|---------|------------|
+| Web | http://localhost:8080 |
+| Agent (Eliza built-in UI) | http://localhost:3000 |
+| Analysis API (direct) | http://localhost:8000 — `/health`, `/docs`, `/analyze/repo`, etc. |
+
+Compose wiring matches `docker-compose.yml`: agent waits for a healthy analysis-service; web depends on both and sets `ANALYSIS_SERVICE_URL` / `AGENT_URL` for server-side proxying.
+
+### Ports in use
+
+If bind errors occur, use `./scripts/free-ports.sh` or `./scripts/start.sh` (see `scripts/free-ports.sh` — it targets listeners and avoids killing Docker’s own processes when possible).
 
 ---
 
-## Claim Your Nosana Builders Credits
+## ohm-mcp dependency (analysis-service)
 
-All challenge participants get **free compute credits** to deploy and run their agents on Nosana.
+Upstream project: **[github.com/Murugarajr/ohm-mcp](https://github.com/Murugarajr/ohm-mcp)** (MCP server, IDE integration, full tool list).
 
-**How to claim:**
+The analysis engine expects **ohm-mcp** on disk. For production and Nosana:
 
-1. Visit [nosana.com/builders-credits](https://nosana.com/builders-credits)
-2. Sign up or log in with your wallet
-3. Your credits will be added to your account automatically
-4. Use these credits to deploy your ElizaOS agent to the Nosana network
+- Source lives under `analysis-service/vendor/ohm-mcp-src/` (copy of the `ohm_mcp` package from that repo).
+- `Dockerfile` sets `ENV OHM_MCP_SRC_PATH=/app/vendor/ohm-mcp-src`.
+- `docker-compose.yml` does **not** mount a host path for ohm-mcp.
 
-These credits cover the compute costs for running your agent during the challenge period.
-
-> **Note:** Credits are airdropped twice a day. Please be patient if you don't see them immediately after signing up.
+Local dev without rebuilding: you can still align with `OHM_MCP_SRC_PATH` if you customize `.env`, but the default image is self-contained.
 
 ---
 
-## Configure Your LLM
+## Nosana deployment
 
-Nosana provides a hosted **Qwen3.5-27B-AWQ-4bit** endpoint for challenge participants. Update your `.env`:
+Nosana multi-container jobs can hit **DNS / ordering** quirks between operations. The supported path for a stable dashboard deploy is the **all-in-one** image:
 
-```env
-OPENAI_API_KEY=nosana
-OPENAI_API_URL=https://6vq2bcqphcansrs9b88ztxfs88oqy7etah2ugudytv2x.node.k8s.prd.nos.ci/v1
-MODEL_NAME=Qwen3.5-27B-AWQ-4bit
-```
+1. From **repository root** (`agent-challenge/`), build and push:
 
-**Model Details:**
-- **Model ID:** `Qwen3.5-27B-AWQ-4bit`
-- **Max Context Length:** 60,000 tokens
-- **Provider:** Nosana decentralized inference
-- **Base Model:** cyankiwi/Qwen3.5-27B-AWQ-4bit
+   ```bash
+   docker build -f Dockerfile.nosana -t YOUR_USER/misoki-all:latest .
+   docker push YOUR_USER/misoki-all:latest
+   ```
 
-### Option B: Local Development with Ollama
+2. Edit `nos_job_def/nosana_eliza_job_definition.json`: set `image` to your image, and supply env (model URL, API key, GitHub token, Misoki limits). **Do not commit real tokens.**
+
+3. Paste the JSON into the [Nosana Dashboard](https://deploy.nosana.com/) deploy flow. The job exposes **8080** — use that URL as your public Misoki UI.
+
+Secrets: there is no separate “dashboard secrets” UI for arbitrary env injection like `{{ secrets.X }}` in JSON; use [confidential jobs via CLI](https://learn.nosana.com/deployments/jobs/job-definition/confidential.html) if you must avoid publishing tokens in IPFS-hosted definitions.
+
+More detail: **`DEPLOYMENT.md`** in this folder.
+
+---
+
+## Environment variables (summary)
+
+| Variable | Where | Purpose |
+|----------|--------|---------|
+| `NOSANA_MODEL_ENDPOINT` / `NOSANA_API_KEY` | Agent (compose) | OpenAI-compatible LLM (Nosana Qwen endpoint) |
+| `OPENAI_SMALL_MODEL` / `OPENAI_LARGE_MODEL` | Agent | Model ids for the endpoint |
+| `MISOKI_ANALYSIS_SERVICE_URL` | Agent | FastAPI base URL |
+| `MISOKI_ANALYSIS_MAX_FILES`, `MISOKI_ANALYSIS_TIMEOUT_MS` | Agent | Background analysis limits |
+| `ANALYSIS_SERVICE_URL`, `AGENT_URL` | Web (server) | Proxy targets for `/api/analysis/*`, `/api/agent/*` |
+| `GITHUB_TOKEN` | Web, analysis | Private repo access; PR route needs appropriate scopes |
+| `MISOKI_*` | Analysis | GitHub API base, file limits, HTTP timeouts |
+
+---
+
+## Health & debugging
+
+| Check | URL |
+|-------|-----|
+| Analysis | `GET /health` on port 8000 |
+| Web | `GET /api/health` (inside Next) |
+| Agent | Eliza `/health` / logs via `docker compose logs agent` |
 
 ```bash
-ollama pull qwen3.5:27b # or a smaller one for your system
-ollama serve
-```
-
-```env
-OPENAI_API_KEY=ollama
-OPENAI_API_URL=http://127.0.0.1:11434/v1
-MODEL_NAME=qwen3.5:27b
+docker compose logs -f analysis-service web agent
 ```
 
 ---
 
-## Customize Your Agent
+## Related docs
 
-### 1. Define your agent's character
-
-Edit `characters/agent.character.json` to define your agent's personality, knowledge, and behavior:
-
-```json
-{
-  "name": "MyAgent",
-  "bio": ["Your agent's backstory and capabilities"],
-  "system": "Your agent's core instructions and behavior",
-  "plugins": ["@elizaos/plugin-bootstrap", "@elizaos/plugin-openai"],
-  "clients": ["direct"]
-}
-```
-
-### 2. Add plugins
-
-Extend your agent by adding plugins to `package.json` and your character file:
-
-| Plugin | Use Case |
-|--------|----------|
-| `@elizaos/plugin-bootstrap` | Required base plugin |
-| `@elizaos/plugin-openai` | OpenAI-compatible LLM (required for Nosana endpoint) |
-| `@elizaos/plugin-web-search` | Web search capability |
-| `@elizaos/plugin-telegram` | Telegram bot client |
-| `@elizaos/plugin-discord` | Discord bot client |
-| `@elizaos/plugin-twitter` | Twitter/X integration |
-| `@elizaos/plugin-browser` | Browser/web automation |
-| `@elizaos/plugin-sql` | Database access |
-
-Install a plugin:
-```bash
-pnpm add @elizaos/plugin-web-search
-```
-
-Add it to your character file:
-```json
-{
-  "plugins": ["@elizaos/plugin-bootstrap", "@elizaos/plugin-openai", "@elizaos/plugin-web-search"]
-}
-```
-
-### 3. Build custom actions (optional)
-
-Add your own custom logic in `src/index.ts`. See the example plugin already included.
-
-### 4. Persistent storage
-
-SQLite is configured by default — sufficient for development and small-scale agents. For a production-grade personal agent, consider:
-
-- A mounted volume on Nosana
-- External database (PostgreSQL, PlanetScale, etc.)
-- Decentralized storage (Arweave, IPFS)
+- Misoki stack (detailed copy): [`misoki-mcp-ac/README.md`](misoki-mcp-ac/README.md)
+- **ohm-mcp** (analysis engine source & MCP tooling): [github.com/Murugarajr/ohm-mcp](https://github.com/Murugarajr/ohm-mcp)
 
 ---
 
-## Deploy to Nosana
-
-> **Important:** For this challenge, you must deploy your agent to Nosana's decentralized infrastructure. Do **not** use the standard `elizaos deploy` command — that deploys to centralized cloud providers. This challenge is about embracing decentralized compute.
-
-**Why Nosana?**
-- **Decentralized** — Your agent runs on a distributed network of GPU providers, not AWS/GCP/Azure
-- **Cost-effective** — Use your free builders credits (no credit card required)
-- **Permissionless** — No vendor lock-in, full control over your infrastructure
-- **Challenge requirement** — All submissions must be deployed on Nosana
-
-### Prerequisites
-
-Before deploying, ensure you have:
-- [Docker](https://docs.docker.com/get-docker/) installed and running
-- A [Docker Hub](https://hub.docker.com/) account (free)
-- Your [Nosana builders credits](https://nosana.com/builders-credits) claimed
-
-### Step 1: Build and Push Your Docker Image
-
-Your agent needs to be containerized and available on a public registry (Docker Hub) so Nosana nodes can pull and run it.
-
-```bash
-# Build your Docker image
-docker build -t yourusername/nosana-eliza-agent:latest .
-
-# Test it locally first (recommended)
-docker run -p 3000:3000 --env-file .env yourusername/nosana-eliza-agent:latest
-
-# Visit http://localhost:3000 to verify it works
-
-# Log in to Docker Hub
-docker login
-
-# Push to Docker Hub (make it public)
-docker push yourusername/nosana-eliza-agent:latest
-```
-
-> **Tip:** Replace `yourusername` with your actual Docker Hub username. Make sure your repository is **public** so Nosana nodes can pull it.
-
-### Step 2: Configure Your Job Definition
-
-Edit `nos_job_def/nosana_eliza_job_definition.json` and update the Docker image reference:
-
-```json
-{
-  "version": "0.1",
-  "type": "container",
-  "meta": {
-    "trigger": "cli"
-  },
-  "ops": [
-    {
-      "type": "container/run",
-      "id": "eliza-agent",
-      "args": {
-        "image": "yourusername/nosana-eliza-agent:latest",  // <- Change this
-        "ports": ["3000:3000"],
-        "env": {
-          "OPENAI_API_KEY": "nosana",
-          "OPENAI_API_URL": "https://6vq2bcqphcansrs9b88ztxfs88oqy7etah2ugudytv2x.node.k8s.prd.nos.ci/v1",
-          "MODEL_NAME": "Qwen3.5-27B-AWQ-4bit"
-        }
-      }
-    }
-  ]
-}
-```
-
-> **Security Note:** For production deployments, avoid hardcoding sensitive environment variables. Consider using Nosana secrets management or external secret stores.
-
-### Step 3: Deploy via Nosana Dashboard (Easiest)
-
-This is the recommended method for beginners:
-
-1. Visit the [Nosana Dashboard](https://dashboard.nosana.com/deploy)
-2. Connect your Solana wallet (you need this for authentication and using credits)
-3. Click **Expand** to open the job definition editor
-4. Copy and paste the contents of your `nos_job_def/nosana_eliza_job_definition.json` file
-5. Select your preferred compute market:
-   - `nvidia-3090` — High performance (recommended for production)
-   - `nvidia-rtx-4090` — Premium performance
-   - `cpu-only` — Budget option (slower inference)
-6. Click **Deploy**
-7. Wait for a node to pick up your job (usually 30-60 seconds)
-8. Once running, you'll receive a public URL to access your agent
-
-### Step 4: Deploy via Nosana CLI (Advanced)
-
-For developers who prefer the command line or want to automate deployments:
-
-1. First get your API key at [https://deploy.nosana.com/account/](https://deploy.nosana.com/account/)
-2. Edit the [Nosana ElizaOS Job Definition File](./nos_job_def/nosana_eliza_job_definition.json)
-3. Learn more about [Nosana Job Definition Here](https://learn.nosana.com/deployments/jobs/job-definition/intro.html)
-
-```bash
-# Install the Nosana CLI globally
-npm install -g @nosana/cli
-
-# Deploy your agent
-nosana job post \
-  --file ./nos_job_def/nosana_eliza_job_definition.json \
-  --market nvidia-4090 \
-  --timeout 300 \
-  --api <API_KEY>
-
-# Monitor your deployment
-nosana job status <job-id>
-
-# View logs
-nosana job logs <job-id>
-```
-
-**CLI Flags Explained:**
-- `--file` — Path to your job definition JSON
-- `--market` — Which GPU market to use (nvidia-3090, nvidia-rtx-4090, etc.)
-- `--timeout` — Maximum job runtime in minutes
-
-### Step 5: Verify Your Deployment
-
-Once your job is running on Nosana:
-
-1. **Test the endpoint** — Visit the public URL provided by Nosana
-2. **Check agent responsiveness** — Send a test message to your agent
-3. **Monitor logs** — Use the Nosana Dashboard or CLI to view logs
-4. **Verify inference** — Ensure the Qwen3.5-27B model is responding correctly
-
-### Troubleshooting
-
-**Agent not starting?**
-- Check that your Docker image is public on Docker Hub
-- Verify your job definition JSON is valid
-- Ensure environment variables are correctly set
-- Check Nosana dashboard logs for error messages
-
-**Slow response times?**
-- Consider using a higher-tier GPU market (nvidia-rtx-4090)
-- Optimize your ElizaOS configuration
-- Check if the Nosana inference endpoint is reachable
-
-**Out of credits?**
-- Visit [nosana.com/builders-credits](https://nosana.com/builders-credits) to check your balance
-- Credits are airdropped twice daily — be patient if you just signed up
-
-**Need help?**
-- Join the [Nosana Discord](https://nosana.com/discord) for support
-- Check the [Nosana documentation](https://learn.nosana.io)
-- Review the [Nosana CLI docs](https://github.com/nosana-ci/nosana-cli)
-
----
-
-## What You'll Build
-
-Your submission should include:
-- **A working AI agent** built with ElizaOS
-- **A frontend interface** to interact with your agent (web UI, chat interface, dashboard, etc.)
-- **Deployment on Nosana** — your agent must run on Nosana's decentralized infrastructure
-
-**The deeper your Nosana integration, the better your score.** We're looking for projects that fully embrace decentralized infrastructure — not just a minimal deployment, but thoughtful integration into your architecture.
-
-### Examples of Deep Integration (Better Scores):
-- Using Nosana for both training and inference
-- Multi-node deployments across Nosana's network
-- Custom deployment pipelines using Nosana CLI
-- Monitoring and observability integrated with Nosana infrastructure
-- Storage solutions that leverage decentralized networks
-- Creative use of Nosana's compute marketplace
-
----
-
-## Submission
-
-Submit your project via the official submission page: **[superteam.fun/earn/listing/nosana-builders-elizaos-challenge/](https://superteam.fun/earn/listing/nosana-builders-elizaos-challenge/)** before **April 14, 2026**.
-
-**Submission Checklist** — All items are required:
-
-- [ ] **Fork this repository** and build your agent on the `elizaos-challenge` branch
-- [ ] **Build a frontend/UI** for interacting with your agent
-- [ ] **Deploy to Nosana** and get your public deployment URL (agent must run on Nosana infrastructure)
-- [ ] **Star the following repositories:**
-  - [ ] [nosana-ci/agent-challenge](https://github.com/nosana-ci/agent-challenge)
-  - [ ] [nosana-ci/nosana-programs](https://github.com/nosana-ci/nosana-programs)
-  - [ ] [nosana-ci/nosana-kit](https://github.com/nosana-ci/nosana-kit)
-  - [ ] [nosana-ci/nosana-cli](https://github.com/nosana-ci/nosana-cli)
-- [ ] **Make a social media post** about your project on your platform of choice (X/Twitter, LinkedIn, Bluesky, Instagram, or other)
-- [ ] **Provide your GitHub fork link** (public repository)
-- [ ] **Provide your Nosana deployment URL** (running agent)
-- [ ] **Write a description** of your agent and what it does (≤300 words)
-- [ ] **Record a video demo** (<1 minute) showing your agent and frontend in action
-
-> **⚠️ Important:** Submissions that do not meet these requirements will not be considered.
-
-> For complete submission requirements and additional information, visit the [official challenge page](https://superteam.fun/earn/listing/nosana-builders-elizaos-challenge/).
-
----
-
-## Judging Criteria
-
-| Criterion | Weight |
-|-----------|--------|
-| Technical implementation | 25% |
-| Nosana integration depth | 25% |
-| Usefulness & UX | 25% |
-| Creativity & originality | 15% |
-| Documentation | 10% |
-
-**Judging Details:**
-- **Technical implementation (25%)** — Code quality, architecture, and ElizaOS best practices
-- **Nosana integration depth (25%)** — How deeply Nosana is integrated into your deployment and infrastructure
-- **Usefulness & UX (25%)** — Real-world applicability, frontend quality, and user experience
-- **Creativity & originality (15%)** — Innovative use cases and novel approaches
-- **Documentation (10%)** — Code quality, README, setup instructions
-
-**Judges:** DevRel Lead & Ecosystem Specialist, Nosana
-
----
-
-## Project Structure
-
-```
-├── characters/
-│   └── agent.character.json   # Your agent's character definition
-├── src/
-│   └── index.ts               # Custom plugin entry point (optional)
-├── nos_job_def/
-│   └── nosana_eliza_job_definition.json  # Nosana deployment config
-├── Dockerfile.local           # Agent-only image (used by misoki-mcp-ac/docker-compose)
-├── Dockerfile.nosana          # Full Misoki stack for Nosana (single image, expose 8080)
-├── .env.example               # Environment variable template
-└── package.json
-```
-
----
-
-## Resources
-
-### ElizaOS
-- [ElizaOS Documentation](https://elizaos.github.io/eliza/docs) — Full framework docs
-- [ElizaOS Plugin Directory](https://elizaos.github.io/eliza/docs/core/plugins) — Browse available plugins
-- [ElizaOS GitHub](https://github.com/elizaos/eliza) — Source code and examples
-- [ElizaOS Discord](https://discord.gg/elizaos) — Community support
-
-### Nosana
-- [Nosana Documentation](https://docs.nosana.io) — Platform guide
-- [Nosana Dashboard](https://dashboard.nosana.com) — Deploy and manage jobs
-- [Nosana CLI](https://github.com/nosana-ci/nosana-cli) — Command-line deployment
-- [Nosana Discord](https://nosana.com/discord) — Support and endpoint URL
-
-### Qwen3.5
-- [Qwen3.5-27B on HuggingFace](https://huggingface.co/Qwen/Qwen3.5-27B)
-
----
-
-## Support & Community
-
-- **Discord** — Join [Nosana Discord](https://nosana.com/discord) for support, the Nosana endpoint URL, and to connect with other builders
-- **Twitter/X** — Follow [@nosana_ai](https://x.com/nosana_ai) and [@elizaos](https://x.com/elizaos) for updates
-- **GitHub** — Open an issue in this repo if you find problems with the template
-
----
-
-## License
-
-This template is open source and available under the [MIT License](./LICENSE).
-
----
-
-**Built with ElizaOS · Deployed on Nosana · Powered by Qwen3.5**
+**Misoki** — analyze, chat, patch, and ship on your own stack or on **Nosana** decentralized compute, with ElizaOS and a real Python analysis engine under the hood.

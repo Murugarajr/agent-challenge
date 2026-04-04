@@ -1,4 +1,4 @@
-# Misoki — Code quality, supercharged by AI
+# Misoki — Scan. Explain. Patch. PR. · ElizaOS on Nosana
 
 **Misoki** is a full-stack companion for the [Nosana × ElizaOS Agent Challenge](https://nosana.com): it analyzes **public Python** repositories, surfaces actionable issues, and pairs a **custom Next.js UI** with an **ElizaOS** agent named **Misoki** so you can explore findings, apply safe patches, and open draft PRs when your GitHub token allows.
 
