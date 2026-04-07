@@ -27,6 +27,26 @@ That depth is **more than a single “lint score.”** Misoki leans on signals s
 
 The project is built for the **Nosana × ElizaOS** challenge and is **fully containerized** — run locally or ship an all-in-one image for decentralized deploys. Misoki is aimed at developers who want **refactoring-grade, ohm-mcp-class** analysis under an agent they steer, instead of another static report.
 
+### Screenshots
+
+Misoki on Nosana — example flow (public Python repo, e.g. `pallets/flask`):
+
+1. **Scan** — Paste a GitHub URL on the landing page and run **Analyse**.
+
+   ![Misoki landing: paste repository URL and click Analyse](assets/screenshots/01-landing-analyse.png)
+
+2. **Explain** — Review severity, categories, and issues; use **Review Patches** and the **Misoki agent** chat (suggested prompts or free-form questions).
+
+   ![Misoki results dashboard with issue list and agent chat sidebar](assets/screenshots/02-results-dashboard-chat.png)
+
+3. **Patch** — In **Review Safe Patches**, select low-risk fixes, open **Show diff** as needed, then **Generate Patches** (in-memory until you choose PR).
+
+   ![Review Safe Patches modal: select fixes and generate patches](assets/screenshots/03-review-safe-patches.png)
+
+4. **PR** — In **Patches Generated**, confirm applied fixes and the combined diff, then **Create Draft PR** when your GitHub token allows.
+
+   ![Patches generated: summary, diff preview, Create Draft PR](assets/screenshots/04-patches-generated-draft-pr.png)
+
 ### Demo video
 
 - **Watch:** [Misoki demo — Nosana × ElizaOS build challenge](https://youtu.be/239lme2XyYM)
